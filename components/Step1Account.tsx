@@ -29,6 +29,7 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
   // 1. Otimização: Busca automática de cidades quando UF muda
   useEffect(() => {
     const loadCities = async () => {
+      // Defensive check: uf must be defined and 2 chars
       if (data.uf && data.uf.length === 2) {
         setLoadingCities(true);
         try {
@@ -48,7 +49,9 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
 
   // 2. Validação de CNPJ com Debounce de 500ms
   useEffect(() => {
-    const cleanCnpj = data.cnpj.replace(/[^\d]/g, '');
+    // Defensive check for CNPJ
+    const rawCnpj = data.cnpj || '';
+    const cleanCnpj = rawCnpj.replace(/[^\d]/g, '');
     
     // Reset se estiver vazio
     if (!cleanCnpj) {
@@ -109,7 +112,7 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
     setErrorMsg('');
     try {
       // 1. Busca CNPJ via Gemini (Google Search)
-      const foundCnpj = await findCnpjByName(data.companyName, data.uf);
+      const foundCnpj = await findCnpjByName(data.companyName, data.uf || '');
       
       if (foundCnpj) {
         // 2. Se achou, atualiza o state. Isso vai triggar o useEffect do CNPJ acima
@@ -126,7 +129,8 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
     }
   };
 
-  const isFormValid = data.companyName.trim().length > 0 && data.uf.length === 2;
+  // Safe validation preventing "cannot read properties of undefined (reading 'length')"
+  const isFormValid = (data.companyName?.trim()?.length || 0) > 0 && (data.uf?.length || 0) === 2;
 
   return (
     <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-slate-200">
@@ -148,7 +152,7 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
           <div className="relative">
             <input
               type="text"
-              value={data.companyName}
+              value={data.companyName || ''}
               onChange={(e) => onUpdate({ ...data, companyName: e.target.value })}
               onKeyDown={(e) => e.key === 'Enter' && handleNameSearch()}
               className="w-full p-3 pr-12 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-slate-400"
@@ -172,14 +176,14 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
           <div className="relative">
             <input
               type="text"
-              value={data.cnpj}
+              value={data.cnpj || ''}
               onChange={(e) => onUpdate({ ...data, cnpj: e.target.value })}
               placeholder="00.000.000/0000-00"
               maxLength={18}
               className={`w-full p-3 pl-4 border rounded-lg bg-white text-slate-900 transition outline-none font-mono ${errorMsg ? 'border-red-300 focus:ring-red-200' : 'border-slate-300 focus:ring-2 focus:ring-indigo-500'}`}
             />
             {loadingCnpj && <Loader2 className="w-5 h-5 animate-spin absolute right-3 top-3.5 text-indigo-500" />}
-            {!loadingCnpj && !errorMsg && data.cnpj.length >= 14 && <CheckCircle2 className="w-5 h-5 absolute right-3 top-3.5 text-green-500" />}
+            {!loadingCnpj && !errorMsg && (data.cnpj || '').length >= 14 && <CheckCircle2 className="w-5 h-5 absolute right-3 top-3.5 text-green-500" />}
           </div>
           {errorMsg && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3"/> {errorMsg}</p>}
           
@@ -213,7 +217,7 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-1">UF *</label>
             <select
-              value={data.uf}
+              value={data.uf || ''}
               onChange={(e) => onUpdate({ ...data, uf: e.target.value.toUpperCase(), municipality: '' })}
               className="w-full p-3 border border-slate-300 rounded-lg bg-white text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
             >
@@ -226,7 +230,7 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
             <div className="relative">
               <input
                 type="text"
-                value={data.municipality}
+                value={data.municipality || ''}
                 onChange={(e) => onUpdate({ ...data, municipality: e.target.value })}
                 list="step1-cities-list"
                 disabled={!data.uf}
@@ -248,7 +252,7 @@ const Step1Account: React.FC<Props> = ({ data, onUpdate, onNext }) => {
           <div className="relative">
             <input
               type="text"
-              value={data.website}
+              value={data.website || ''}
               onChange={(e) => onUpdate({ ...data, website: e.target.value })}
               className="w-full p-3 pl-10 border border-slate-300 rounded-lg bg-white text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="www.exemplo.com.br"

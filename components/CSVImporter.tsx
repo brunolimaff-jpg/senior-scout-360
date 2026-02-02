@@ -56,9 +56,11 @@ export const CSVImporter: React.FC<CSVImporterProps> = ({ onImport, onStatusUpda
           return true;
         }).map((row: any, idx: number) => ({
              id: `lead-${idx}-${Date.now()}`,
-             companyName: row['Nome da Empresa'],
-             tradeName: row['Nome Fantasia'] || row['Nome da Empresa'],
-             cnpj: row['CNPJ'],
+             companyName: row['Nome da Empresa'] || "Empresa Desconhecida",
+             tradeName: row['Nome Fantasia'] || row['Nome da Empresa'] || "",
+             cnpj: row['CNPJ'] || "",
+             city: row['Cidade'] || row['Municipio'] || "",
+             uf: row['UF'] || row['Estado'] || "",
              capitalSocial: 0, 
              isValidated: false,
              cnaes: [],

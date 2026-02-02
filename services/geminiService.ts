@@ -345,3 +345,79 @@ export async function askDossierSmart(content: string, account: AccountData, q: 
         dossierUpdate: undefined as DossierUpdate | undefined
     };
 }
+
+/**
+ * BUSCA DE DADOS CADASTRAIS REAIS (HECTARES, FUNCIONÁRIOS, SÓCIOS)
+ * Usa o modelo para inferir dados baseados em conhecimento público ou snippets.
+ */
+export const searchRealData = async (lead: ProspectLead): Promise<{ 
+  hectares: number, 
+  funcionarios: number, 
+  socios: string[], 
+  grupo: string, 
+  resumo: string,
+  fonte: string 
+}> => {
+  const cacheKey = `real_data_v2_${lead.cnpj.replace(/\D/g, '')}`;
+  const cached = getGlobalCache(cacheKey);
+  if (cached) return cached;
+
+  const ai = getAiClient();
+  const cnaeText = lead.cnaes?.map(c => c.description).join(', ') || '';
+  const isHolding = lead.companyName.toUpperCase().includes('HOLDING') || lead.companyName.toUpperCase().includes('PARTICIPACOES') || lead.companyName.toUpperCase().includes('INVESTIMENTOS');
+
+  const prompt = `
+    Atue como um analista de inteligência de mercado do Agronegócio Brasileiro (Senior Scout).
+    Alvo: ${lead.companyName} (CNPJ: ${lead.cnpj})
+    Cidade: ${lead.city}/${lead.uf}
+    Atividade: ${cnaeText}
+
+    Busque em sua base de conhecimento E NA WEB (notícias, relatórios, LinkedIn, dados públicos) por fatos sobre esta empresa.
+    ${isHolding ? 'ATENÇÃO: Esta empresa parece ser uma HOLDING. Tente mapear o Grupo Econômico e suas controladas.' : ''}
+
+    Retorne estritamente um JSON com:
+    1. "hectares": number (estimativa real de área plantada/própria, 0 se não achar)
+    2. "funcionarios": number (vínculos estimados, 0 se não achar)
+    3. "socios": array de strings (nomes dos principais sócios ou família controladora)
+    4. "grupo": string (Nome do Grupo Econômico se identificado, ou "N/D")
+    5. "resumo": string (breve resumo da operação e estrutura, máx 200 caracteres)
+    6. "fonte": string (origem principal da informação, ex: LinkedIn, Relatório Sustentabilidade)
+
+    Regras Rígidas:
+    - NÃO INVENTE DADOS. Se não souber, retorne 0 ou "N/D".
+    - Para sócios, busque por "Família X", "Irmãos Y" ou nomes listados em QSA público.
+    - Se for Holding, explique no resumo quem ela controla.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: MODELS.PRIMARY, // Usando o modelo Pro para melhor pesquisa
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json"
+      }
+    });
+
+    const text = response.text;
+    if (!text) return { hectares: 0, funcionarios: 0, socios: [], grupo: "N/D", resumo: "Sem dados", fonte: "IA" };
+
+    const result = JSON.parse(text);
+    
+    const finalData = {
+      hectares: typeof result.hectares === 'number' ? result.hectares : 0,
+      funcionarios: typeof result.funcionarios === 'number' ? result.funcionarios : 0,
+      socios: Array.isArray(result.socios) ? result.socios : [],
+      grupo: result.grupo || "N/D",
+      resumo: result.resumo || "",
+      fonte: result.fonte || "Estimativa IA"
+    };
+
+    setGlobalCache(cacheKey, finalData);
+    return finalData;
+
+  } catch (error) {
+    console.error("Erro na busca real Gemini:", error);
+    return { hectares: 0, funcionarios: 0, socios: [], grupo: "N/D", resumo: "Erro na conexão IA", fonte: "Erro" };
+  }
+};

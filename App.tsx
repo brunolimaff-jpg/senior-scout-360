@@ -1,18 +1,23 @@
-
-import React, { useState, useEffect } from 'react';
-import { AppState, INITIAL_STATE, ProspectLead, AccountData } from './types';
+import React, { useState } from 'react';
+import { ProspectLead, LogEntry } from './types';
 import { Phase0Prospector } from './components/Phase0Prospector';
-import Step1Account from './components/Step1Account';
-import Step2Evidence from './components/Step2Evidence';
-import Step3Dossier from './components/Step3Dossier';
-import Step4Export from './components/Step4Export';
 import { OperationsCenter } from './components/OperationsCenter';
+import ScoutModule from './components/ScoutModule';
 import { LogConsole } from './components/LogConsole';
-import { Target, ShieldCheck, Sparkles, Swords } from 'lucide-react';
+
+// Tipos de Visão da Aplicação
+type AppView = 'RADAR' | 'SCOUT' | 'ARSENAL';
 
 export default function App() {
-  const [state, setState] = useState<AppState>(INITIAL_STATE);
+  const [currentView, setCurrentView] = useState<AppView>('RADAR');
+  const [selectedLead, setSelectedLead] = useState<ProspectLead | null>(null);
+  
+  // Estado Global (Persistente durante a sessão)
+  const [savedLeads, setSavedLeads] = useState<ProspectLead[]>([]);
+  const [comparisonLeads, setComparisonLeads] = useState<ProspectLead[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
 
+  // Sistema de Log Centralizado
   const addLog = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
     const newLog = {
       id: `log-${Date.now()}-${Math.random()}`,
@@ -20,124 +25,96 @@ export default function App() {
       type,
       timestamp: new Date().toISOString()
     };
-    setState(s => ({ ...s, logs: [...s.logs, newLog] }));
+    setLogs(s => [...s, newLog]);
   };
 
-  const handleDeepDive = (lead: ProspectLead) => {
-    setState(s => ({
-      ...s,
-      activeModule: 'SCOUT',
-      data: {
-        ...s.data,
-        companyName: lead.companyName,
-        cnpj: lead.cnpj,
-        municipality: lead.city,
-        uf: lead.uf
-      },
-      step: 1
-    }));
+  // --- Handlers de Navegação ---
+
+  // Iniciar Deep Dive (Scout)
+  const handleStartScout = (lead: ProspectLead) => {
+    addLog(`Sara: Iniciando auditoria profunda para: ${lead.companyName}...`, 'info');
+    setSelectedLead(lead);
+    setCurrentView('SCOUT');
+  };
+
+  const handleBackToRadar = () => {
+    setSelectedLead(null);
+    setCurrentView('RADAR');
   };
 
   const handleCompareLeads = (leads: ProspectLead[]) => {
-    setState(s => ({ 
-      ...s, 
-      comparisonLeads: leads,
-      activeModule: 'ARSENAL'
-    }));
+    setComparisonLeads(leads);
+    setCurrentView('ARSENAL');
   };
 
-  const clearLogs = () => setState(s => ({ ...s, logs: [] }));
+  const clearLogs = () => setLogs([]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
       
-      {state.activeModule === 'RADAR' ? (
-        <Phase0Prospector 
-          savedLeads={state.savedLeads}
-          onSaveLeads={(leads) => setState(s => ({ ...s, savedLeads: leads }))}
-          onDeepDive={handleDeepDive}
-          onCompare={handleCompareLeads}
-        />
-      ) : (
-        <main className="flex-1 max-w-7xl mx-auto w-full p-8 animate-in fade-in duration-500">
-           {/* Navigation back for non-Radar modules */}
-           <div className="mb-6 flex justify-between items-center">
-             <button 
-               onClick={() => setState(s => ({ ...s, activeModule: 'RADAR' }))}
-               className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 font-bold uppercase text-xs tracking-wider"
-             >
-               &larr; Voltar para Radar Agro
-             </button>
-             <h2 className="text-sm font-black text-slate-300 uppercase">{state.activeModule}</h2>
-           </div>
-
-           {state.activeModule === 'ARSENAL' && (
-             <OperationsCenter 
-               comparisonLeads={state.comparisonLeads}
-               onClearComparison={() => setState(s => ({ ...s, comparisonLeads: [] }))}
-             />
-           )}
-
-           {state.activeModule === 'SCOUT' && (
-             <div className="w-full">
-               {state.step === 1 && (
-                  <Step1Account
-                    data={state.data}
-                    onUpdate={(data) => setState(s => ({ ...s, data }))}
-                    onNext={() => setState(s => ({ ...s, step: 2 }))}
-                  />
-                )}
-                {state.step === 2 && (
-                  <Step2Evidence
-                    data={state.data}
-                    evidenceList={state.evidenceList}
-                    setEvidenceList={(list) => setState(s => ({ ...s, evidenceList: list }))}
-                    isSearching={state.isSearching}
-                    setIsSearching={(val) => setState(s => ({ ...s, isSearching: val }))}
-                    onNext={() => setState(s => ({ ...s, step: 3 }))}
-                    onBack={() => setState(s => ({ ...s, step: 1 }))}
-                    // Fixed: removed onUpdateAccount as it is not present in Step2Evidence Props
-                    addLog={addLog}
-                  />
-                )}
-                {state.step === 3 && (
-                  <Step3Dossier
-                    data={state.data}
-                    evidenceList={state.evidenceList}
-                    dossierContent={state.dossierContent}
-                    setDossierContent={(content) => setState(s => ({ ...s, dossierContent: content }))}
-                    isGenerating={state.isGenerating}
-                    setIsGenerating={(val) => setState(s => ({ ...s, isGenerating: val }))}
-                    onNext={() => setState(s => ({ ...s, step: 4 }))}
-                    onBack={() => setState(s => ({ ...s, step: 2 }))}
-                    addLog={addLog}
-                  />
-                )}
-                {state.step === 4 && (
-                  <Step4Export
-                    data={state.data}
-                    content={state.dossierContent}
-                    onBack={() => setState(s => ({ ...s, step: 3 }))}
-                  />
-                )}
-             </div>
-           )}
-        </main>
-      )}
-
-      <LogConsole logs={state.logs} onClear={clearLogs} />
-
-      {state.activeModule !== 'RADAR' && (
-        <footer className="bg-white border-t border-slate-100 py-8 px-6 mt-auto">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">© 2025 Senior Sistemas • Sales Intelligence Unit</p>
-            <div className="flex gap-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-              <a href="#" className="hover:text-indigo-600">Documentação</a>
-              <a href="#" className="hover:text-indigo-600">Suporte Sara</a>
-            </div>
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+        
+        {/* VIEW: RADAR (Descoberta) */}
+        {currentView === 'RADAR' && (
+          <div className="flex-1 overflow-y-auto w-full scroll-smooth">
+            <Phase0Prospector 
+              savedLeads={savedLeads}
+              onSaveLeads={setSavedLeads}
+              onDeepDive={handleStartScout}
+              onCompare={handleCompareLeads}
+            />
           </div>
-        </footer>
-      )}
+        )}
+
+        {/* VIEW: SCOUT (Auditoria Profunda) */}
+        {currentView === 'SCOUT' && selectedLead && (
+          <div className="flex-1 overflow-y-auto w-full bg-slate-50/50 p-6 md:p-8 animate-in slide-in-from-right-8 duration-500">
+             <ScoutModule 
+               initialLead={selectedLead}
+               onBack={handleBackToRadar}
+               addLog={addLog}
+             />
+          </div>
+        )}
+
+        {/* VIEW: ARSENAL (Comparativo & Ferramentas) */}
+        {currentView === 'ARSENAL' && (
+           <div className="flex-1 overflow-y-auto w-full p-6 md:p-8 animate-in fade-in zoom-in-95">
+             <div className="max-w-7xl mx-auto">
+               <div className="mb-6 flex justify-between items-center">
+                  <button 
+                    onClick={handleBackToRadar}
+                    className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 font-bold uppercase text-xs tracking-wider transition-colors"
+                  >
+                    &larr; Voltar para Radar
+                  </button>
+                  <h2 className="text-xs font-black text-slate-300 uppercase tracking-widest">Arsenal Tático</h2>
+               </div>
+               <OperationsCenter 
+                 comparisonLeads={comparisonLeads}
+                 onClearComparison={() => setComparisonLeads([])}
+               />
+             </div>
+           </div>
+        )}
+
+        {/* Footer Global (apenas fora do Radar para não poluir a view full-screen) */}
+        {currentView !== 'RADAR' && (
+          <footer className="bg-white border-t border-slate-100 py-4 px-8 mt-auto flex-shrink-0 z-10">
+            <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">© 2025 Senior Sistemas • Sales Intelligence Unit</p>
+              <div className="flex gap-4">
+                 <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">v2.1 Pilot</span>
+              </div>
+            </div>
+          </footer>
+        )}
+
+      </main>
+
+      {/* Console de Logs Flutuante */}
+      <LogConsole logs={logs} onClear={clearLogs} />
+
     </div>
   );
 }

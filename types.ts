@@ -341,6 +341,45 @@ export interface AlertItem {
   timestamp: string;
 }
 
+// --- SAS 4.0: Senior Agro Score ---
+
+export type AgroTier = 'BRONZE' | 'PRATA' | 'OURO' | 'DIAMANTE';
+
+export interface AgroProfile {
+  hectares: number;
+  atividadePrincipal: 'SOJA' | 'MILHO' | 'ALGODAO' | 'SEMENTE' | 'CAFE' | 'CANA' | 'PECUARIA' | 'INDUSTRIA' | 'MISTO';
+  funcionarios: number;
+  isSA: boolean;            // Sociedade Anônima?
+  isGrupoEconomico: boolean; // Holding/Filiais?
+  temIrrigacao: boolean;
+  temArmazem: boolean;      // Silos
+  temFrota: boolean;        // Oficina/Caminhões
+  temGestaoProfissional: boolean; // CEO/CFO identificados
+  temConectividade: boolean; // 4G/Tech
+  temCertificacao: boolean;  // ESG/ISO
+  isExportador: boolean;
+}
+
+export interface ScorePillar {
+  name: string;
+  score: number; // 0-250
+  max: number;   // 250
+  details: string[]; // Logs do porquê pontuou
+}
+
+export interface SeniorAgroScoreResult {
+  totalScore: number; // 0-1000
+  tier: AgroTier;
+  pillars: {
+    musculo: ScorePillar;
+    complexidade: ScorePillar;
+    gente: ScorePillar;
+    momento: ScorePillar;
+  };
+  auditLog: string[]; // Resumo geral para o Vendedor
+  recommendedSolutions: string[];
+}
+
 export const INITIAL_STATE: AppState = {
   activeModule: 'RADAR',
   step: 1,

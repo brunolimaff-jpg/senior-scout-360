@@ -1,69 +1,72 @@
 import React, { useState } from 'react';
-import { HelpCircle, ChevronDown, ChevronUp, Target, Zap, ShieldCheck, Map, FileSearch, Shield } from 'lucide-react';
+import { HelpCircle, ChevronDown, ChevronUp, TrendingUp, BrainCircuit, Users, Target } from 'lucide-react';
 
-interface Props {
-  mode?: 'CPF' | 'CNPJ' | 'UPLOAD' | 'SEARCH_CPF' | 'SEARCH_CNPJ';
-}
-
-export const IntelligenceGuide: React.FC<Props> = ({ mode = 'SEARCH_CNPJ' }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  const isCpfMode = mode === 'SEARCH_CPF' || mode === 'CPF';
+export const IntelligenceGuide: React.FC = () => {
+  const [isOpen, setIsOpen] = useState(true);
 
   return (
-    <div className="mb-6 border border-slate-200 rounded-xl bg-white overflow-hidden shadow-sm">
+    <div className="bg-slate-50 border border-slate-200 rounded-lg mb-6 shadow-sm transition-all duration-300">
+      {/* Cabeçalho Acordeão */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-slate-50 transition-colors rounded-t-lg border-b border-slate-100"
       >
-        <div className="flex items-center gap-2">
-          <HelpCircle size={16} className="text-teal-600" />
-          <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-            Critérios de Avaliação da Sara ({isCpfMode ? 'Inteligência Fundiária' : 'Complexidade Operacional'})
-          </span>
+        <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wide">
+          <HelpCircle size={16} className="text-indigo-600" />
+          CRITÉRIOS DE AVALIAÇÃO SAS 4.0 (SCORE 1000)
         </div>
-        {isOpen ? <ChevronUp size={16} className="text-slate-400"/> : <ChevronDown size={16} className="text-slate-400"/>}
+        {isOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
       </button>
-      
+
+      {/* Conteúdo Explicativo (Grid de 4 Colunas) */}
       {isOpen && (
-        <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-top-2">
+        <div className="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           
-          {/* Pilar 1 */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-amber-600 mb-1">
-              {isCpfMode ? <Map size={18} /> : <Target size={18} />}
-              <h4 className="text-xs font-black uppercase">{isCpfMode ? 'Patrimônio Fundiário' : 'Complexidade Operacional'}</h4>
+          {/* Pilar 1: Músculo */}
+          <div className="flex flex-col gap-2 relative">
+            <div className="absolute top-0 right-0 text-[9px] font-bold text-slate-300">MAX 250 PTS</div>
+            <div className="flex items-center gap-2 text-blue-700 font-bold text-xs uppercase">
+              <TrendingUp size={16} />
+              1. Músculo (Escala)
             </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              {isCpfMode 
-                ? "Área produtiva total identificada via CAR, SIGEF e Licenças Ambientais. Cruzamos dados de múltiplos cadastros."
-                : "Score baseado no Poder Econômico alavancado pela verticalização da operação (Indústria, Silos e Logística)."}
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Mede o <strong>Tamanho Físico e Financeiro</strong>. Baseado em Hectares produtivos, Capital Social e Verticalização (Silos/Frota). É a base da pirâmide.
             </p>
           </div>
 
-          {/* Pilar 2 */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-teal-600 mb-1">
-              {isCpfMode ? <ShieldCheck size={18} /> : <Zap size={18} />}
-              <h4 className="text-xs font-black uppercase">{isCpfMode ? 'Confiança da Fonte' : 'Multiplicador de Cultura'}</h4>
+          {/* Pilar 2: Complexidade */}
+          <div className="flex flex-col gap-2 relative">
+             <div className="absolute top-0 right-0 text-[9px] font-bold text-slate-300">MAX 250 PTS</div>
+            <div className="flex items-center gap-2 text-purple-700 font-bold text-xs uppercase">
+              <BrainCircuit size={16} />
+              2. Complexidade
             </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              {isCpfMode 
-                ? "Score baseado na procedência oficial (Diário Oficial, SEMA) e consistência entre documentos públicos."
-                : "Diferenciamos a complexidade de software exigida para Algodão (1.5x) vs Pecuária (0.8x) vs Grãos (1.0x)."}
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Mede a <strong>Dor Operacional</strong>. Culturas como Algodão e Sementes (1.5x) ou Indústria (3.0x) exigem muito mais controle sistêmico que Pecuária (0.8x).
             </p>
           </div>
 
-          {/* Pilar 3 */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-indigo-600 mb-1">
-              {isCpfMode ? <FileSearch size={18} /> : <Shield size={18} />}
-              <h4 className="text-xs font-black uppercase">{isCpfMode ? 'Rastro de Evidências' : 'Maturidade de Governança'}</h4>
+          {/* Pilar 3: Gente */}
+          <div className="flex flex-col gap-2 relative">
+             <div className="absolute top-0 right-0 text-[9px] font-bold text-slate-300">MAX 250 PTS</div>
+            <div className="flex items-center gap-2 text-pink-700 font-bold text-xs uppercase">
+              <Users size={16} />
+              3. Gente (HCM)
             </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              {isCpfMode 
-                ? "Quantidade de documentos independentes que validam a existência e atividade do produtor na região."
-                : "Prioridade para estruturas S/A e Holdings com maior necessidade de ERP robusto. Empresas com >5 anos ganham bônus."}
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Mede o <strong>Risco Trabalhista</strong>. Empresas com muitos funcionários (>200) ou turnos complexos (Usinas) pontuam alto aqui.
+            </p>
+          </div>
+
+          {/* Pilar 4: Momento */}
+          <div className="flex flex-col gap-2 relative">
+             <div className="absolute top-0 right-0 text-[9px] font-bold text-slate-300">MAX 250 PTS</div>
+            <div className="flex items-center gap-2 text-emerald-700 font-bold text-xs uppercase">
+              <Target size={16} />
+              4. Momento
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Mede a <strong>Maturidade de Governança</strong>. Estruturas S.A., Holdings, Gestão Profissional e Conectividade no campo indicam prontidão de compra.
             </p>
           </div>
 

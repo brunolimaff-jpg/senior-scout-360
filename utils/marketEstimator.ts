@@ -1,76 +1,165 @@
+import { AgroProfile, SeniorAgroScoreResult, ScorePillar, AgroTier } from '../types';
 
-export interface EstimationParams {
-  hectares?: number;
-  heads?: number; // Cabeças de gado
-  branches?: number;
-  crushingCapacity?: number; // Toneladas de cana
-}
+const PILLAR_CAP = 250;
+const MAX_SCORE = 1000;
 
-export interface RevenueEstimation {
-  estimatedRange: string;
-  rawAvg: number;
-  logic: string;
-}
+export const calculateSeniorAgroScore = (profile: AgroProfile): SeniorAgroScoreResult => {
+  // --- 1. PILAR MÚSCULO (Escala Física ou Financeira) ---
+  const pMusculo = calculateMuscle(profile);
+  
+  // --- 2. PILAR COMPLEXIDADE (Dor Operacional) ---
+  const pComplexidade = calculateComplexity(profile);
 
-export const estimateRevenue = (segment: string, data: EstimationParams): RevenueEstimation | null => {
-  let lowEstimate = 0;
-  let highEstimate = 0;
-  let logic = "";
+  // --- 3. PILAR GENTE & GOVERNANÇA (Risco) ---
+  const pGente = calculatePeopleAndGovernance(profile);
 
-  const cleanSegment = (segment || "").toLowerCase();
+  // --- 4. PILAR MOMENTO (Prontidão) ---
+  const pMomento = calculateMoment(profile);
 
-  // --- 1. PRODUTOR DE GRÃOS (Soja/Milho) ---
-  // Lógica: Safra (Verão) + Safrinha (Inverno)
-  // Base: R$ 10k a R$ 13k por hectare/ano bruto
-  if (cleanSegment.includes('grãos') || cleanSegment.includes('soja') || cleanSegment.includes('produtor') || cleanSegment.includes('agrícola') || cleanSegment.includes('algodão')) {
-    if (data.hectares && data.hectares > 0) {
-      // Se for algodão, o valor é bem maior, ajustamos se detectado
-      const isCotton = cleanSegment.includes('algodão') || cleanSegment.includes('fibra');
-      const multiplierLow = isCotton ? 18000 : 10000;
-      const multiplierHigh = isCotton ? 25000 : 13000;
+  // --- TOTALIZAÇÃO ---
+  const totalScore = Math.min(
+    pMusculo.score + pComplexidade.score + pGente.score + pMomento.score, 
+    MAX_SCORE
+  );
 
-      lowEstimate = data.hectares * multiplierLow;
-      highEstimate = data.hectares * multiplierHigh;
-      logic = isCotton 
-        ? `Baseado em alto custo/receita do Algodão (MT/BA).`
-        : `Baseado em produtividade média de Soja+Milho na região (60+100 sc/ha) x Preço Médio de Mercado.`;
-    }
-  }
+  // --- CLASSIFICAÇÃO (TIER) - Ajuste de Réguas (Novas Faixas) ---
+  let tier: AgroTier = 'BRONZE';
+  if (totalScore > 750) tier = 'DIAMANTE';      // 751 - 1000 (Azul Premium)
+  else if (totalScore > 500) tier = 'OURO';     // 501 - 750 (Amber/Gold)
+  else if (totalScore > 250) tier = 'PRATA';    // 251 - 500 (Silver/Corporate)
+  // 0 - 250 é Bronze (Neutro)
 
-  // --- 2. PECUÁRIA (Gado de Corte) ---
-  else if (cleanSegment.includes('pecuária') || cleanSegment.includes('gado') || cleanSegment.includes('bovino')) {
-    if (data.heads && data.heads > 0) { 
-      // Se temos nº de cabeças (Giro)
-      lowEstimate = data.heads * 1500; // Faturamento por cabeça girada
-      highEstimate = data.heads * 2200;
-      logic = `Estimativa baseada no giro de rebanho e preço da Arroba atual.`;
-    } else if (data.hectares && data.hectares > 0) {
-      // Se temos apenas área (Extensivo vs Intensivo)
-      lowEstimate = data.hectares * 2500;
-      highEstimate = data.hectares * 4000;
-      logic = `Estimativa baseada em lotação média de pastagem e giro de arroba (Pecuária de Ciclo Curto).`;
-    }
-  }
-
-  // --- 3. INDÚSTRIA (Usinas e Frigoríficos) ---
-  else if (cleanSegment.includes('usina') || cleanSegment.includes('sucro') || cleanSegment.includes('etanol') || cleanSegment.includes('bioenergia')) {
-    if (data.crushingCapacity && data.crushingCapacity > 0) { 
-      // Capacidade de Moagem (Ex: 2.000.000 tons)
-      lowEstimate = data.crushingCapacity * 280;
-      highEstimate = data.crushingCapacity * 350;
-      logic = `Baseado no mix de produção (Açúcar/Etanol) por tonelada de cana moída (TCH).`;
-    }
-  }
-
-  // Se não conseguiu estimar
-  if (lowEstimate === 0 || highEstimate === 0) return null;
-
-  // Formata para milhões (MM)
-  const format = (val: number) => (val / 1000000).toFixed(1).replace('.', ',') + " MM";
+  const solutions = recommendSolutions(profile, totalScore, tier);
 
   return {
-    estimatedRange: `R$ ${format(lowEstimate)} - R$ ${format(highEstimate)}`,
-    rawAvg: (lowEstimate + highEstimate) / 2,
-    logic: logic
+    totalScore,
+    tier,
+    pillars: { musculo: pMusculo, complexidade: pComplexidade, gente: pGente, momento: pMomento },
+    auditLog: [...pMusculo.details, ...pComplexidade.details],
+    recommendedSolutions: solutions
   };
+};
+
+// --- SUB-MOTORES RECALIBRADOS ---
+
+const calculateMuscle = (p: AgroProfile): ScorePillar => {
+  let score = 0;
+  const details: string[] = [];
+
+  // 1. Pontos por Hectare (Base Física)
+  let scoreHa = 0;
+  if (p.hectares > 30000) scoreHa = 250;
+  else if (p.hectares > 10000) scoreHa = 200;
+  else if (p.hectares > 5000) scoreHa = 150;
+  else if (p.hectares > 1000) scoreHa = 80;
+
+  // 2. Pontos por Perfil Industrial (Base de Valor)
+  let scoreCap = 0;
+  if (p.atividadePrincipal === 'INDUSTRIA' || p.atividadePrincipal === 'SEMENTE') {
+     scoreCap = 220; // Indústria tem "Músculo Financeiro" alto por default
+  }
+
+  // Define score base pelo maior indicador
+  if (scoreCap > scoreHa) {
+    score = scoreCap;
+    details.push("🏭 Força Industrial (Alto Valor Agregado)");
+  } else {
+    score = scoreHa;
+    if (score > 0) details.push(`🚜 Força Produtiva: ${p.hectares.toLocaleString('pt-BR')} ha`);
+  }
+
+  // --- REGRA DE NEGÓCIO UNIVERSAL (PISO CORPORATIVO) ---
+  // Grupos Econômicos e S.A. possuem lastro financeiro que muitas vezes não aparece em hectares no CNPJ principal.
+  // Garante um piso de 180 pontos (Tier Prata/Corporate garantido no pilar)
+  if ((p.isGrupoEconomico || p.isSA) && score < 180) {
+    score = 180;
+    details.push("🏢 Força Corporativa (Grupo/S.A. - Piso Garantido)");
+  }
+
+  // 3. Bônus de Ativos (Verticalização)
+  if (p.temArmazem) { score += 30; details.push("📦 Silos Próprios"); }
+  if (p.temFrota) { score += 20; details.push("🚛 Frota Própria"); }
+
+  return { name: "Músculo (Escala)", score: Math.min(score, PILLAR_CAP), max: PILLAR_CAP, details };
+};
+
+const calculateComplexity = (p: AgroProfile): ScorePillar => {
+  let score = 0;
+  const details: string[] = [];
+
+  switch (p.atividadePrincipal) {
+    case 'INDUSTRIA':
+    case 'SEMENTE': // Sementes agora pontua MÁXIMO igual Indústria
+      score += 250;
+      details.push("🧬 Complexidade Industrial/Genética (Crítica)");
+      break;
+    case 'ALGODAO':
+      score += 200;
+      details.push("☁️ Algodão (Alta Tecnologia)");
+      break;
+    case 'CANA':
+    case 'MISTO':
+      score += 150;
+      details.push("🔄 Operação Mista/Usinas");
+      break;
+    case 'SOJA':
+    case 'MILHO':
+      score += 100;
+      details.push("🌾 Grãos (Produção Padrão)");
+      break;
+    default:
+      score += 50;
+  }
+  
+  if (p.temIrrigacao) { score += 50; details.push("💧 Irrigação (Pivô)"); }
+
+  return { name: "Complexidade", score: Math.min(score, PILLAR_CAP), max: PILLAR_CAP, details };
+};
+
+const calculatePeopleAndGovernance = (p: AgroProfile): ScorePillar => {
+  let score = 0;
+  const details: string[] = [];
+
+  // Motor HCM
+  let baseHcm = 0;
+  // Se for indústria, o multiplicador de gente é maior
+  const multiplier = (p.atividadePrincipal === 'INDUSTRIA' || p.atividadePrincipal === 'SEMENTE') ? 1.5 : 1.0;
+  
+  if (p.funcionarios >= 1000) baseHcm = 250;
+  else if (p.funcionarios >= 500) baseHcm = 200;
+  else if (p.funcionarios >= 200) baseHcm = 150;
+  else if (p.funcionarios >= 50) baseHcm = 80;
+  else baseHcm = 30;
+
+  score += Math.min(Math.round(baseHcm * multiplier), 200);
+
+  // Governança
+  if (p.isSA) { score += 50; details.push("⚖️ S.A. (Compliance)"); }
+  if (p.isGrupoEconomico) { score += 50; details.push("🏢 Grupo Econômico"); }
+
+  return { name: "Gente & Gov", score: Math.min(score, PILLAR_CAP), max: PILLAR_CAP, details };
+};
+
+const calculateMoment = (p: AgroProfile): ScorePillar => {
+  let score = 50; // Base inicial
+  const details: string[] = [];
+  
+  // Se é S.A. ou Indústria, o momento de tecnologia é sempre alto
+  if (p.isSA || p.atividadePrincipal === 'INDUSTRIA') {
+    score += 100;
+    details.push("🚀 Maturidade Digital Alta");
+  }
+
+  if (p.temGestaoProfissional) { score += 50; }
+  if (p.temConectividade) { score += 50; }
+
+  return { name: "Momento", score: Math.min(score, PILLAR_CAP), max: PILLAR_CAP, details };
+};
+
+const recommendSolutions = (p: AgroProfile, score: number, tier: AgroTier): string[] => {
+  const list = ['Senior ERP'];
+  if (p.atividadePrincipal === 'INDUSTRIA' || p.atividadePrincipal === 'SEMENTE' || p.funcionarios > 100) list.push('Senior HCM');
+  if (['ALGODAO', 'SEMENTE', 'CANA', 'MISTO'].includes(p.atividadePrincipal) || p.temIrrigacao) list.push('GAtec');
+  if (tier === 'DIAMANTE') list.push('WMS / Logística');
+  return list;
 };
