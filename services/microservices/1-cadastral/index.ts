@@ -1,0 +1,1 @@
+export { validateCNPJ } from './cnpjValidator';

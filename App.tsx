@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ProspectLead, LogEntry } from './types';
 import { Phase0Prospector } from './components/Phase0Prospector';
 import { OperationsCenter } from './components/OperationsCenter';

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   MapPin, Terminal, Database, Layers, 
@@ -108,6 +109,10 @@ export const Phase0Prospector: React.FC<{
         return [...filteredNew, ...safePrev];
     });
     setAuditProgress({ current: 0, total: newLeads.length });
+  };
+
+  const handleUpdateLead = (updatedLead: ProspectLead) => {
+    setLeads(prev => prev.map(l => l.id === updatedLead.id ? updatedLead : l));
   };
 
   const startAuditProcess = async () => {
@@ -298,6 +303,7 @@ export const Phase0Prospector: React.FC<{
                     onIndividualAudit={handleIndividualAudit}
                     onFindPJs={handleGroupSearch}
                     isBeingAudited={auditingLeadId === lead.id}
+                    onUpdate={handleUpdateLead}
                   />
                 ))}
               </div>

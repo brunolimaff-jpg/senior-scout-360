@@ -36,10 +36,11 @@ export const ManualEvidenceForm: React.FC<Props> = ({ onAdd }) => {
       title: form.source || "Evidência Manual",
       snippet: form.text,
       text: form.text,
-      url: form.url || undefined,
+      url: form.url || '',
       source: form.source || "Interno",
       type: form.type,
       selected: true,
+      recommendation: 'MANTER',
       createdAt: new Date().toISOString()
     };
 

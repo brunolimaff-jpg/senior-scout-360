@@ -14,6 +14,21 @@ export interface TemporalEvent {
   category: 'MULTA' | 'EXPANSAO' | 'VAGA' | 'EDITAL' | 'CERTIFICACAO' | 'GERAL';
 }
 
+export interface GroupCompany {
+  cnpj: string;
+  nome: string;
+  capitalSocial: number;
+  status: 'VALIDADA' | 'PENDENTE' | 'FALHOU';
+  participacao?: number;
+  atividadePrincipal?: string;
+  endereco?: string;
+  qsa?: Array<{
+    nome: string;
+    qualificacao: string;
+    participacao?: string;
+  }>;
+}
+
 export interface ScoreBreakdown {
   financial: number;    
   longevity: number;    
@@ -41,36 +56,70 @@ export interface SourceEvidence {
   snippet: string;
 }
 
-export interface AgroTacticalAnalysis {
-  verticalizationScore: number;
-  badges: string[];
-  salesComplexity: 'COMPLEXA/COMITE' | 'CONSULTIVA/SUCESSAO' | 'TRANSACIONAL';
-  goldenHook: string;
-  successorHint?: string;
-  temporalTrace?: TemporalEvent[];
-  predictiveScore?: number; 
-  buyingMoment?: 'agora' | '3 meses' | '6+ meses'; 
-  scoreReason?: string;
-  evidenceCount?: number;
-  sourcesSummary?: string[];
-  summaryLine?: string;
-  isPotentialHomonym?: boolean;
-  rawEvidences?: SourceEvidence[];
-  isProcessingPdf?: boolean;
-  pdfProcessed?: boolean;
-  // Novos campos para Score Determinístico
-  deterministicScore?: number;
-  deterministicBreakdown?: string[];
-  operationalComplexity?: number; // Novo campo S_fit (0 a 1000)
+export interface PhaseTelemetry {
+  phaseId: number;
+  name: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  startedAt?: string;
+  endedAt?: string;
+  durationMs: number;
+  counts: Record<string, number>;
+  topUrls: string[];
+  errorMessage?: string;
+  manualRetry?: boolean;
 }
 
-export interface LeadMetadata {
-  hectaresTotal: number;
-  fontes: string[];
-  formatos: string[];
-  urls: string[];
-  contextos: string[];
-  hasGroup?: boolean;
+export interface CompanyRelatedItem {
+  cnpj: string;
+  razaoSocial: string;
+  tradeName?: string;
+  situacao: string;
+  capitalSocial: number | null;
+  qsaCount: number | null;
+  evidenceUrls: string[];
+  snippets: string[];
+  validationStatus: 'VALIDADA' | 'PENDENTE' | 'FALHOU';
+  validationErrorMessage?: string;
+  lastValidatedAt?: string;
+  attemptCount: number;
+  estimatedRevenue: number | null;
+  confidence: number;
+  linkReasons: string[];
+}
+
+export interface GroupMagnitudeSummary {
+  validatedCnpjsCount: number;
+  totalCapitalSocial: number;
+  maxCapitalSocial: number;
+  estimatedRevenueTotal: number;
+  estimateCompaniesUsed: number;
+  estimateCompaniesExcluded: number;
+}
+
+export interface JobProgress {
+  runId: string;
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
+  currentStepName: string;
+  completedSteps: number;
+  totalSteps: number;
+  currentItemIndex: number;
+  totalItems: number;
+  startedAt?: string;
+  endedAt?: string;
+  durationMs: number;
+}
+
+export interface PFProspect {
+  id: string;
+  displayName: string;
+  normalizedName: string;
+  city: string;
+  uf: string;
+  vertical: string;
+  evidences: SourceEvidence[];
+  confidence: number;
+  isStrongCandidate: boolean;
+  hectares?: number;
 }
 
 export interface ProspectLead {
@@ -78,6 +127,8 @@ export interface ProspectLead {
   companyName: string;
   tradeName?: string;
   cnpj: string;
+  cpf?: string;
+  cpfStatus?: 'VALIDADO_FONTE' | 'VALIDADO_API' | 'PENDENTE' | 'MANUAL';
   city: string;
   uf: string;
   isValidated: boolean;
@@ -89,7 +140,7 @@ export interface ProspectLead {
   isMatriz: boolean;
   activityCount: number;
   email?: string;
-  corporateDomain?: string; // NOVO CAMPO: Identificador de Grupo via Email
+  corporateDomain?: string; 
   contactType: 'Direto' | 'Contabilidade';
   confidence: number; 
   score?: number; 
@@ -111,6 +162,55 @@ export interface ProspectLead {
     faltouConfirmar: string[];
   };
   metadata?: LeadMetadata;
+  hectares?: number;
+  numFuncionarios?: number;
+  isGrupoEconomico?: boolean;
+  isPF?: boolean;
+  fonte?: string;
+  confiabilidade?: 'ALTA' | 'MEDIA' | 'BAIXA';
+}
+
+export interface AgroTacticalAnalysis {
+  verticalizationScore: number;
+  badges: string[];
+  salesComplexity: 'COMPLEXA/COMITE' | 'CONSULTIVA/SUCESSAO' | 'TRANSACIONAL';
+  goldenHook: string;
+  successorHint?: string;
+  temporalTrace?: TemporalEvent[];
+  predictiveScore?: number; 
+  buyingMoment?: 'agora' | '3 meses' | '6+ meses'; 
+  scoreReason?: string;
+  evidenceCount?: number;
+  sourcesSummary?: string[];
+  summaryLine?: string;
+  isPotentialHomonym?: boolean;
+  rawEvidences?: SourceEvidence[];
+  isProcessingPdf?: boolean;
+  pdfProcessed?: boolean;
+  deterministicScore?: number;
+  deterministicBreakdown?: string[];
+  operationalComplexity?: number;
+  searchTelemetry?: PhaseTelemetry[];
+}
+
+export interface LeadMetadata {
+  hectaresTotal: number;
+  fontes: string[];
+  formatos: string[];
+  urls: string[];
+  contextos: string[];
+  hasGroup?: boolean;
+}
+
+export interface NetworkNode {
+  id: string;
+  label: string;
+  type: 'COMPANY' | 'PERSON';
+  status: 'ACTIVE' | 'INACTIVE';
+  cnpj?: string;
+  role?: string;
+  level: number;
+  parentId?: string;
 }
 
 export interface AccountData {
@@ -123,52 +223,26 @@ export interface AccountData {
   notes?: string;
 }
 
-export interface Citation {
-  source: string;
-  confidence: number;
+export interface LogEntry {
+  id: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  timestamp: string;
 }
 
 export interface Evidence {
   id: string;
   title: string;
   text: string;
-  snippet?: string;
-  url?: string;
+  snippet: string;  
+  url: string;
   category: string;
   selected: boolean;
-  recommendation?: 'MANTER' | 'DESCARTE';
-  source?: string;
+  recommendation: string;
+  source: string;
   type: 'web' | 'texto' | 'url' | 'pdf';
-  reason?: string;
-  citations?: Citation[];
+  citations?: Array<{ confidence: number }>;
   createdAt?: string;
-}
-
-export interface CostInfo {
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalCost: number;
-}
-
-export interface AppState {
-  activeModule: 'RADAR' | 'SCOUT' | 'ARSENAL';
-  step: number;
-  data: AccountData;
-  evidenceList: Evidence[];
-  dossierContent: string;
-  isGenerating: boolean;
-  isSearching: boolean;
-  savedLeads: ProspectLead[];
-  comparisonLeads: ProspectLead[];
-  logs: LogEntry[];
-}
-
-export interface LogEntry {
-  id: string;
-  message: string;
-  type: 'info' | 'success' | 'warning' | 'error';
-  timestamp: string;
 }
 
 export interface FitCriteria {
@@ -190,24 +264,23 @@ export interface RadarResult {
   searchSuggestionsHtml?: string;
 }
 
-export interface GroundingMetadata {
-  searchEntryPoint?: {
-    renderedContent?: string;
-  };
-  groundingChunks?: any[];
+export interface CostInfo {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalCost: number;
 }
 
-export interface SpiderGraph {
-  nodes: SpiderNode[];
-  edges: SpiderEdge[];
+export interface GroundingMetadata {
+  groundingChunks?: any[];
+  searchEntryPoint?: any;
 }
 
 export interface SpiderNode {
   id: string;
   label: string;
-  type: 'COMPANY' | 'PERSON' | 'GROUP' | 'ASSET';
+  type: 'COMPANY' | 'PERSON' | 'GROUP';
   level: number;
-  parentId?: string;
   metadata?: {
     role?: string;
   };
@@ -218,17 +291,19 @@ export interface SpiderEdge {
   source: string;
   target: string;
   relation: string;
-  status: 'CONFIRMED' | 'PROBABLE';
+  status: 'CONFIRMED' | 'PENDING';
   evidence?: {
-    snippet: string;
-    url?: string;
+    snippet?: string;
   };
 }
 
+export interface SpiderGraph {
+  nodes: SpiderNode[];
+  edges: SpiderEdge[];
+}
+
 export interface DossierUpdate {
-  sectionTitle: string;
-  appendMarkdown: string;
-  reason: string;
+  content?: string;
 }
 
 export interface DossierPlanSection {
@@ -236,24 +311,26 @@ export interface DossierPlanSection {
   objective: string;
 }
 
-export interface NetworkNode {
-  id: string;
-  label: string;
-  type: 'COMPANY' | 'PERSON';
-  status: 'ACTIVE' | 'INACTIVE';
-  cnpj?: string;
-  role?: string;
-  level: number;
-  parentId?: string;
+export type AgroTier = 'BRONZE' | 'PRATA' | 'OURO' | 'DIAMANTE';
+
+export interface ScorePillar {
+  name: string;
+  score: number;
+  max: number;
+  details: string[];
 }
 
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'model';
-  text: string;
-  timestamp: string;
-  grounding?: GroundingMetadata;
-  dossierUpdate?: DossierUpdate;
+export interface SeniorAgroScoreResult {
+  totalScore: number;
+  tier: AgroTier;
+  pillars: {
+    musculo: ScorePillar;
+    complexidade: ScorePillar;
+    gente: ScorePillar;
+    momento: ScorePillar;
+  };
+  auditLog: string[];
+  recommendedSolutions: string[];
 }
 
 export interface QualityCheckResult {
@@ -265,10 +342,23 @@ export interface QualityCheckResult {
   recommendation: string;
 }
 
+export interface ScoreDimension {
+  name: string;
+  score: number;
+  weight: number;
+  evidences: string[];
+}
+
+export interface ExplainableScore {
+  scoreTotal: number;
+  dimensions: ScoreDimension[];
+  recommendation: string;
+  drivers?: Array<{ label: string; points: number; why: string }>;
+  missingInfo?: string[];
+  howToConfirm?: string[];
+}
+
 export interface DossierAnalysisData {
-  company: {
-    name: string;
-  };
   metrics: {
     estimatedTicket: number;
     roi: number;
@@ -286,6 +376,9 @@ export interface DossierAnalysisData {
     deciderProfile: string;
     accountingStatus: string;
   };
+  company: {
+    name: string;
+  };
   qualitative: {
     techSummary: string;
     fiscalSummary: string;
@@ -298,25 +391,7 @@ export interface DossierAnalysisData {
     valueProp: string;
     similarUseCase?: string;
   }>;
-  scoreExplanation?: {
-    scoreTotal: number;
-    drivers: Array<{ label: string; points: number; why: string }>;
-    missingInfo: string[];
-    howToConfirm: string[];
-  };
-}
-
-export interface ScoreDimension {
-  name: string;
-  score: number;
-  weight: number;
-  evidences: string[];
-}
-
-export interface ExplainableScore {
-  scoreTotal: number;
-  dimensions: ScoreDimension[];
-  recommendation: string;
+  scoreExplanation?: ExplainableScore;
 }
 
 export interface PipelineItem {
@@ -338,57 +413,46 @@ export interface HistoryItem {
 export interface AlertItem {
   id: string;
   message: string;
-  timestamp: string;
+  severity: 'info' | 'warning' | 'error';
 }
-
-// --- SAS 4.0: Senior Agro Score ---
-
-export type AgroTier = 'BRONZE' | 'PRATA' | 'OURO' | 'DIAMANTE';
 
 export interface AgroProfile {
   hectares: number;
-  atividadePrincipal: 'SOJA' | 'MILHO' | 'ALGODAO' | 'SEMENTE' | 'CAFE' | 'CANA' | 'PECUARIA' | 'INDUSTRIA' | 'MISTO';
+  atividadePrincipal: 'SOJA' | 'MILHO' | 'ALGODAO' | 'CANA' | 'MISTO' | 'INDUSTRIA' | 'SEMENTE' | 'PECUARIA' | 'CAFE';
   funcionarios: number;
-  isSA: boolean;            // Sociedade Anônima?
-  isGrupoEconomico: boolean; // Holding/Filiais?
+  isSA: boolean;
+  isGrupoEconomico: boolean;
   temIrrigacao: boolean;
-  temArmazem: boolean;      // Silos
-  temFrota: boolean;        // Oficina/Caminhões
-  temGestaoProfissional: boolean; // CEO/CFO identificados
-  temConectividade: boolean; // 4G/Tech
-  temCertificacao: boolean;  // ESG/ISO
+  temArmazem: boolean;
+  temFrota: boolean;
+  temGestaoProfissional: boolean;
+  temConectividade: boolean;
+  temCertificacao: boolean;
   isExportador: boolean;
 }
 
-export interface ScorePillar {
-  name: string;
-  score: number; // 0-250
-  max: number;   // 250
-  details: string[]; // Logs do porquê pontuou
+export interface PFSearchRunSummary {
+  pfCandidatesFound: number;
+  pfUniqueAfterDedupe: number;
+  evidencesTotal: number;
+  orgSeedsExtracted: number;
+  farmSeedsExtracted: number;
+  cnpjCandidatesFound: number;
+  cnpjValidated: number;
+  networkNodes: number;
+  networkEdges: number;
 }
 
-export interface SeniorAgroScoreResult {
-  totalScore: number; // 0-1000
-  tier: AgroTier;
-  pillars: {
-    musculo: ScorePillar;
-    complexidade: ScorePillar;
-    gente: ScorePillar;
-    momento: ScorePillar;
-  };
-  auditLog: string[]; // Resumo geral para o Vendedor
-  recommendedSolutions: string[];
+export interface CompanyCandidate {
+  cnpj: string;
+  legalName: string;
+  uf: string;
+  city: string;
+  evidenceUrls: string[];
+  snippets: string[];
+  confidence: number;
+  linkReasons: string[];
+  validationStatus: 'pending' | 'VALIDADA' | 'FALHOU';
+  attemptCount: number;
+  capitalSocial: number;
 }
-
-export const INITIAL_STATE: AppState = {
-  activeModule: 'RADAR',
-  step: 1,
-  data: { companyName: '', cnpj: '', municipality: '', uf: '', profile: OutputProfile.STANDARD },
-  evidenceList: [],
-  dossierContent: '',
-  isGenerating: false,
-  isSearching: false,
-  savedLeads: [],
-  comparisonLeads: [],
-  logs: []
-};
