@@ -1,196 +1,181 @@
 
-import React, { useMemo, useState } from 'react';
-import { ProspectLead, NetworkNode } from '../types';
-import { analyzeLeadIntelligence } from '../services/intelligenceService';
+import React from 'react';
 import { 
-  Building2, TrendingUp, Sprout, Crown, Clock, 
-  FileText, Network, ChevronDown, ChevronUp, Users, 
-  CheckCircle2, Globe, MapPin, Search, Eye, Share2, 
-  AlertTriangle, ShieldCheck, Briefcase, FileSearch,
-  Loader2, UserSearch, PenSquare
+  Building2, MapPin, TrendingUp, ScanSearch, 
+  Crown, DollarSign, BrainCircuit, Users, Target, Activity
 } from 'lucide-react';
-import { CompanyDetailsModal } from './modals';
-import { PFDetailsModal } from './modals/PFDetailsModal';
-import { RelationshipWeb } from './RelationshipWeb';
+import { ProspectLead } from '../types';
 
 interface LeadCardProps {
   lead: ProspectLead;
-  onScout: (lead: ProspectLead) => void;
-  onFindPJs?: (lead: ProspectLead) => void;
-  onIndividualAudit?: (leadId: string) => void;
-  isBeingAudited?: boolean;
-  onUpdate?: (lead: ProspectLead) => void;
-  onSave?: (lead: ProspectLead) => void;
+  onAction: () => void; // Ação única: Mapear Conta
 }
 
-export const LeadCard: React.FC<LeadCardProps> = ({ lead, onScout, onFindPJs, isBeingAudited, onUpdate }) => {
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [showPFModal, setShowPFModal] = useState(false);
-  const [showNetwork, setShowNetwork] = useState(false);
-  const [networkNodes, setNetworkNodes] = useState<NetworkNode[]>([]);
-
-  const isPending = lead.status === 'pending' || !lead.isValidated;
+export const LeadCard: React.FC<LeadCardProps> = ({ lead, onAction }) => {
   
-  const intelligence = useMemo(() => {
-    if (isPending && !lead.isPF) return null;
-    return analyzeLeadIntelligence(lead);
-  }, [lead, isPending]);
-
-  const totalScore = intelligence?.totalScore || 0;
-  let tierKey = 'BRONZE';
-  if (totalScore > 750) tierKey = 'DIAMANTE';
-  else if (totalScore > 500) tierKey = 'OURO';
-  else if (totalScore > 250) tierKey = 'PRATA';
-
-  const formatMoney = (val: number) => new Intl.NumberFormat('pt-BR', { notation: 'compact', style: 'currency', currency: 'BRL' }).format(val);
-
-  const formatCPF = (cpf?: string) => {
-    if (!cpf) return 'N/A';
-    const clean = cpf.replace(/\D/g, '');
-    return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  // 1. Definição de ELITE (Regra de Negócio Visual)
+  const isElite = (lead.capitalSocial || 0) > 10000000 || (lead.metadata?.hectaresTotal || 0) > 5000;
+  
+  // 2. Formatação Financeira
+  const formatCurrency = (val?: number) => {
+    if (!val) return 'N/D';
+    if (val >= 1000000000) return `R$ ${(val / 1000000000).toFixed(1)} Bi`;
+    if (val >= 1000000) return `R$ ${(val / 1000000).toFixed(1)} MM`;
+    if (val >= 1000) return `R$ ${(val / 1000).toFixed(1)} K`;
+    return `R$ ${val.toFixed(2)}`;
   };
 
-  const handleManualCPF = () => {
-    const cpf = prompt(`Digite o CPF real de ${lead.companyName}:`);
-    if (cpf) {
-        // Validação simples de formato
-        const clean = cpf.replace(/\D/g, '');
-        if (clean.length === 11) {
-            if (onUpdate) {
-                onUpdate({ 
-                    ...lead, 
-                    cpf: clean, 
-                    cpfStatus: 'MANUAL',
-                    isValidated: true // Assume validação manual
-                });
-            }
-        } else {
-            alert("CPF inválido. Deve conter 11 dígitos.");
-        }
-    }
-  };
+  // 3. Simulação Visual SAS 4.0 (Barras de Progresso)
+  const cap = lead.capitalSocial || 0;
+  
+  // Músculo: Capital ou Hectares
+  let scoreMusculo = 30;
+  if (cap > 20000000) scoreMusculo = 100;
+  else if (cap > 5000000) scoreMusculo = 75;
+  else if (cap > 1000000) scoreMusculo = 50;
 
-  const visualConfig: any = {
-    PENDING: { borderColor: 'border-slate-200 border-dashed', headerBg: 'bg-slate-50', headerText: 'text-slate-400', label: 'EM ANÁLISE' },
-    BRONZE: { borderColor: 'border-slate-200', headerBg: 'bg-slate-50', headerText: 'text-slate-500', label: 'STANDARD' },
-    PRATA: { borderColor: 'border-slate-300', headerBg: 'bg-slate-100', headerText: 'text-slate-700', label: 'CORPORATE' },
-    OURO: { borderColor: 'border-amber-400', headerBg: 'bg-amber-400', headerText: 'text-white', label: 'KEY ACCOUNT' },
-    DIAMANTE: { borderColor: 'border-blue-600', headerBg: 'bg-blue-600', headerText: 'text-white', label: 'TOP 1% AGRO' },
-  };
+  // Complexidade: Atividade (Indústria/Semente > Grãos > Pecuária)
+  const isInd = lead.cnaes?.some(c => c.description.includes('INDUSTRIA') || c.description.includes('SEMENTE'));
+  const scoreComplex = isInd ? 90 : 50;
 
-  const style = visualConfig[tierKey] || visualConfig.BRONZE;
+  // Gente: Estimativa baseada em Capital (Proxy)
+  const estFunc = Math.ceil(cap / 300000); 
+  const scoreGente = Math.min(100, Math.max(20, (estFunc / 50) * 100));
+
+  // Momento: S.A. ou Digital
+  const scoreMomento = lead.isSA ? 100 : 40;
 
   return (
-    <div className="relative pt-2">
-      {lead.isPF && (
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 z-20">
-          <span className="bg-teal-600 text-white px-3 py-0.5 rounded-full text-[9px] font-black uppercase flex items-center gap-1.5 shadow-lg shadow-teal-100">
-            <Users size={10} /> PRODUTOR PF
-          </span>
-        </div>
+    <div className={`group relative bg-white rounded-xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden flex flex-col ${isElite ? 'border-amber-200 shadow-amber-50/50' : 'border-slate-200 shadow-sm'}`}>
+      
+      {/* ELITE GLOW HEADER */}
+      {isElite && (
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500"></div>
       )}
 
-      <div className={`flex flex-col rounded-3xl border-2 bg-white transition-all duration-500 hover:shadow-xl ${style.borderColor} ${isBeingAudited ? 'opacity-50' : ''}`}>
+      {/* BODY CONTENT */}
+      <div className="p-5 flex-1 flex flex-col">
         
-        {isBeingAudited && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center backdrop-blur-[1px] rounded-3xl">
-              <Loader2 className="animate-spin text-teal-600" size={32} />
-          </div>
-        )}
+        {/* HEADER: NOME & SCORE */}
+        <div className="flex justify-between items-start mb-3">
+           <div className="flex-1 min-w-0 pr-3">
+              <h3 className="text-lg font-black text-slate-800 tracking-tight leading-none truncate flex items-center gap-2 group-hover:text-emerald-700 transition-colors">
+                {lead.companyName}
+                {isElite && <Crown size={16} className="text-amber-500 fill-amber-100 flex-shrink-0" />}
+              </h3>
+              <div className="flex items-center gap-2 mt-1.5">
+                 <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                    <Building2 size={10} /> {lead.cnpj || 'CPF/PENDENTE'}
+                 </div>
+                 <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                    <MapPin size={10} /> {lead.city}/{lead.uf}
+                 </div>
+              </div>
+           </div>
 
-        <div className={`px-4 py-2 flex justify-between items-center rounded-t-[22px] ${style.headerBg}`}>
-          <span className={`text-[10px] font-black uppercase tracking-widest ${style.headerText}`}>{style.label}</span>
-          {!isPending && (
-             <div className="text-right">
-                <span className="text-[8px] font-bold text-slate-400 block -mb-1">SCORE</span>
-                <span className="text-sm font-black text-slate-700">{totalScore}</span>
-             </div>
-          )}
+           {/* SCORE BOX */}
+           <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-lg p-2 min-w-[60px]">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">SAS</span>
+              <span className={`text-lg font-black leading-none ${isElite ? 'text-amber-600' : 'text-slate-700'}`}>
+                {lead.score || 50}
+              </span>
+           </div>
         </div>
 
-        <div className="p-4 flex flex-col gap-3">
-          <div>
-            <h3 className="font-black text-slate-800 text-sm leading-tight uppercase truncate">{lead.companyName}</h3>
-            
-            {/* PF / PJ INFO LINE */}
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-               {lead.isPF ? (
-                 lead.cpf ? (
-                   <span className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-2 py-0.5 rounded text-[10px] font-mono font-bold shadow-sm flex items-center gap-1">
-                     CPF: {formatCPF(lead.cpf)}
-                     {lead.cpfStatus === 'MANUAL' && <PenSquare size={8} className="opacity-70"/>}
-                   </span>
-                 ) : (
-                   <button 
-                     onClick={handleManualCPF}
-                     className="bg-amber-500 hover:bg-amber-600 text-white px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm transition-colors"
-                   >
-                     ⚠️ CPF PENDENTE <PenSquare size={10}/>
-                   </button>
-                 )
-               ) : (
-                 <span className="text-[9px] text-slate-400 font-mono bg-slate-50 px-1 rounded border border-slate-100">
-                   {lead.cnpj}
-                 </span>
-               )}
-               <span className="text-[9px] text-slate-400 flex items-center gap-0.5 font-bold uppercase"><MapPin size={8}/> {lead.city}/{lead.uf}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-               <span className="text-[8px] font-bold text-slate-400 uppercase block">Porte Est.</span>
-               <span className="text-xs font-black text-slate-700">{lead.metadata?.hectaresTotal ? `${lead.metadata.hectaresTotal.toLocaleString('pt-BR')} ha` : 'Auditando...'}</span>
-            </div>
-            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-               <span className="text-[8px] font-bold text-slate-400 uppercase block">Certeza IA</span>
-               <span className="text-xs font-black text-indigo-600">{lead.confidence}%</span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {lead.isPF ? (
-               <button
-                 onClick={() => setShowPFModal(true)}
-                 disabled={!lead.cpf}
-                 className="w-full flex items-center justify-center gap-2 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md shadow-teal-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                 title={!lead.cpf ? "Necessário inserir CPF" : ""}
-               >
-                 <UserSearch size={14} /> Investigar Produtor PF
-               </button>
-            ) : (
-              <button
-                onClick={() => setShowDetailsModal(true)}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md"
-              >
-                <Eye size={14} /> Investigar Dados Reais
-              </button>
-            )}
-
-            {lead.cnpj && lead.cnpj !== 'PF CANDIDATO' && (
-              <button
-                onClick={() => setShowNetwork(!showNetwork)}
-                className={`w-full flex items-center justify-center gap-2 py-2 border rounded-xl text-[10px] font-black uppercase transition-all ${showNetwork ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-              >
-                <Network size={14} /> {showNetwork ? 'Ocultar Rede' : 'Consultar Sócios/Grupo'}
-              </button>
-            )}
-          </div>
-
-          {showNetwork && (
-            <div className="mt-2 animate-in fade-in zoom-in-95">
-              <RelationshipWeb 
-                rootData={{ name: lead.companyName, cnpj: lead.cnpj }} 
-                nodes={networkNodes} 
-                onNodesChange={setNetworkNodes} 
-              />
-            </div>
-          )}
+        {/* BADGES ROW */}
+        <div className="flex flex-wrap gap-2 mb-5">
+           {isElite && (
+             <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[9px] font-black uppercase border border-amber-200 flex items-center gap-1">
+               <Crown size={10} className="fill-amber-600"/> TOP 1% AGRO
+             </span>
+           )}
+           {lead.cnaes?.some(c => c.description.includes('SOJA') || c.description.includes('CEREAIS')) && (
+             <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-bold uppercase border border-emerald-100">🌱 Produtor</span>
+           )}
+           {lead.isSA && (
+             <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold uppercase border border-blue-100">🏢 S.A.</span>
+           )}
         </div>
+
+        {/* PAINEL FINANCEIRO (MÚSCULO) */}
+        <div className="grid grid-cols-2 gap-4 mb-5 p-3 bg-slate-50 rounded-xl border border-slate-100">
+           <div className="flex flex-col justify-center">
+              <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                 <TrendingUp size={10} /> Faturamento Est.
+              </span>
+              <span className="text-lg font-black text-emerald-800 tracking-tight">
+                 {formatCurrency(lead.estimatedRevenue)}
+              </span>
+           </div>
+           <div className="flex flex-col justify-center border-l border-slate-200 pl-4">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                 <DollarSign size={10} /> Capital Social
+              </span>
+              <span className="text-sm font-bold text-slate-600">
+                 {formatCurrency(lead.capitalSocial)}
+              </span>
+           </div>
+        </div>
+
+        {/* ACTION BUTTON (BOTTOM ALIGNED) */}
+        <div className="mt-auto">
+           <button 
+             onClick={onAction}
+             className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-widest rounded-lg shadow-sm hover:shadow-emerald-200 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+           >
+             <ScanSearch size={16} /> Mapear Conta & Dossiê
+           </button>
+        </div>
+
       </div>
 
-      <CompanyDetailsModal lead={lead} isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)} />
-      <PFDetailsModal lead={lead} isOpen={showPFModal} onClose={() => setShowPFModal(false)} />
+      {/* FOOTER: SAS 4.0 BARS */}
+      <div className="grid grid-cols-4 border-t border-slate-100 h-10 divide-x divide-slate-100 bg-slate-50">
+         {/* Músculo */}
+         <div className="flex flex-col items-center justify-center p-1 group/bar" title={`Músculo: ${scoreMusculo}%`}>
+            <div className="flex items-center gap-1 mb-1">
+               <Activity size={10} className="text-emerald-500" />
+               <span className="text-[8px] font-bold text-slate-400 uppercase">Músculo</span>
+            </div>
+            <div className="w-12 h-1 bg-slate-200 rounded-full overflow-hidden">
+               <div style={{width: `${scoreMusculo}%`}} className="h-full bg-emerald-500 rounded-full"></div>
+            </div>
+         </div>
+
+         {/* Complexidade */}
+         <div className="flex flex-col items-center justify-center p-1 group/bar" title={`Complexidade: ${scoreComplex}%`}>
+            <div className="flex items-center gap-1 mb-1">
+               <BrainCircuit size={10} className="text-amber-500" />
+               <span className="text-[8px] font-bold text-slate-400 uppercase">Complex.</span>
+            </div>
+            <div className="w-12 h-1 bg-slate-200 rounded-full overflow-hidden">
+               <div style={{width: `${scoreComplex}%`}} className="h-full bg-amber-500 rounded-full"></div>
+            </div>
+         </div>
+
+         {/* Gente */}
+         <div className="flex flex-col items-center justify-center p-1 group/bar" title={`Gente: ${scoreGente}%`}>
+            <div className="flex items-center gap-1 mb-1">
+               <Users size={10} className="text-blue-500" />
+               <span className="text-[8px] font-bold text-slate-400 uppercase">Gente</span>
+            </div>
+            <div className="w-12 h-1 bg-slate-200 rounded-full overflow-hidden">
+               <div style={{width: `${scoreGente}%`}} className="h-full bg-blue-500 rounded-full"></div>
+            </div>
+         </div>
+
+         {/* Momento */}
+         <div className="flex flex-col items-center justify-center p-1 group/bar" title={`Momento: ${scoreMomento}%`}>
+            <div className="flex items-center gap-1 mb-1">
+               <Target size={10} className="text-purple-500" />
+               <span className="text-[8px] font-bold text-slate-400 uppercase">Momento</span>
+            </div>
+            <div className="w-12 h-1 bg-slate-200 rounded-full overflow-hidden">
+               <div style={{width: `${scoreMomento}%`}} className="h-full bg-purple-500 rounded-full"></div>
+            </div>
+         </div>
+      </div>
+
     </div>
   );
 };

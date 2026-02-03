@@ -125,6 +125,7 @@ export const OperationsCenter: React.FC<Props> = ({ comparisonLeads, onClearComp
     setPipeline(getPipeline());
     setHistory(getHistory());
     setAlerts(getAlerts());
+    // Auto-switch to COMPARE if leads are passed
     if (comparisonLeads.length > 0) setActiveTab('COMPARE');
   }, [comparisonLeads]);
 
@@ -227,7 +228,7 @@ export const OperationsCenter: React.FC<Props> = ({ comparisonLeads, onClearComp
         </button>
         {comparisonLeads.length > 0 && (
           <button onClick={() => setActiveTab('COMPARE')} className={`pb-3 px-2 font-bold text-sm flex items-center gap-2 border-b-2 transition whitespace-nowrap ${activeTab === 'COMPARE' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500'}`}>
-            <SplitSquareHorizontal className="w-4 h-4" /> Comparação ({comparisonLeads.length})
+            <SplitSquareHorizontal className="w-4 h-4" /> Grupo / Comparação ({comparisonLeads.length})
           </button>
         )}
       </div>
@@ -235,7 +236,7 @@ export const OperationsCenter: React.FC<Props> = ({ comparisonLeads, onClearComp
       {/* Content */}
       <div className="bg-slate-50 min-h-[500px] rounded-xl border border-slate-200 p-6">
         
-        {/* TOOLS VIEW (New) */}
+        {/* TOOLS VIEW */}
         {activeTab === 'TOOLS' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
             
@@ -420,44 +421,74 @@ export const OperationsCenter: React.FC<Props> = ({ comparisonLeads, onClearComp
           </div>
         )}
 
-        {/* COMPARISON VIEW */}
+        {/* COMPARISON / GROUP VIEW */}
         {activeTab === 'COMPARE' && (
            <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="font-bold text-slate-700">Comparativo Lado a Lado</h3>
-                <button onClick={onClearComparison} className="text-red-600 text-sm hover:underline">Limpar Comparação</button>
+                <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                  <Shield className="text-indigo-600 w-5 h-5"/> Análise de Grupo / Comparativo
+                </h3>
+                <button onClick={onClearComparison} className="text-red-600 text-sm hover:underline font-medium">Limpar Seleção</button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                  {comparisonLeads.map((lead, idx) => (
-                   <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative">
-                      <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500 rounded-t-xl"></div>
-                      <h3 className="font-bold text-lg mb-1">{lead.companyName}</h3>
-                      <p className="text-sm text-slate-500 mb-4">{lead.city}/{lead.uf}</p>
+                   <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-md hover:shadow-xl transition-all p-6 relative group overflow-hidden">
+                      {/* Header Color Bar */}
+                      <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-500 to-purple-600"></div>
                       
-                      <div className="space-y-4 text-sm">
+                      <div className="flex justify-between items-start mb-4">
+                         <h3 className="font-black text-xl text-slate-800">{lead.companyName}</h3>
+                         <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold font-mono">{lead.city}/{lead.uf}</span>
+                      </div>
+                      
+                      <div className="space-y-5 text-sm">
+                         {/* Visualização de Prioridade */}
                          <div>
-                            <span className="block text-xs font-bold text-slate-400 uppercase">Prioridade</span>
-                            <div className="flex items-center gap-2">
-                               <div className="flex-1 h-2 bg-slate-100 rounded-full"><div style={{width: `${lead.priority}%`}} className="h-full bg-green-500 rounded-full"></div></div>
-                               <span className="font-bold">{lead.priority}</span>
+                            <div className="flex justify-between text-xs font-bold text-slate-400 uppercase mb-1">
+                               <span>Prioridade Tática</span>
+                               <span>{lead.priority}/100</span>
+                            </div>
+                            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                               <div style={{width: `${lead.priority}%`}} className={`h-full rounded-full transition-all duration-1000 ${lead.priority > 70 ? 'bg-emerald-500' : 'bg-amber-400'}`}></div>
                             </div>
                          </div>
+
+                         {/* Badges de Fit */}
                          <div>
-                            <span className="block text-xs font-bold text-slate-400 uppercase">Aderência (Fit)</span>
-                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${lead.fitLevel === 'Sim' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{lead.fitLevel}</span>
+                            <span className="block text-xs font-bold text-slate-400 uppercase mb-2">Sinais de Aderência</span>
+                            <div className="flex flex-wrap gap-2">
+                               <span className={`px-2 py-1 rounded text-xs font-bold border ${lead.fitLevel === 'Sim' || lead.fitLevel === 'Alto' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                 Fit: {lead.fitLevel}
+                               </span>
+                               {lead.tacticalAnalysis?.badges?.map((b, i) => (
+                                 <span key={i} className="px-2 py-1 rounded text-xs font-bold bg-slate-50 text-slate-600 border border-slate-200">{b}</span>
+                               ))}
+                            </div>
                          </div>
-                         <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                            <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Motivos</span>
-                            <ul className="list-disc pl-4 text-xs text-slate-600 space-y-1">
-                               {(lead.fitExplanation?.motivos || []).map((m, i) => <li key={i}>{m}</li>)}
-                            </ul>
-                         </div>
-                         <div className="bg-red-50 p-3 rounded-lg border border-red-100">
-                            <span className="block text-xs font-bold text-red-400 uppercase mb-1">Pontos de Atenção</span>
-                            <ul className="list-disc pl-4 text-xs text-red-600 space-y-1">
-                               {(lead.fitExplanation?.faltouConfirmar || []).map((m, i) => <li key={i}>{m}</li>)}
-                            </ul>
-                         </div>
+
+                         {/* Motivos de Fit (Verde) */}
+                         {(lead.fitExplanation?.motivos?.length || 0) > 0 && (
+                           <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                              <span className="flex items-center gap-2 text-xs font-bold text-emerald-700 uppercase mb-2">
+                                <CheckCircle2 size={14}/> Pontos Fortes
+                              </span>
+                              <ul className="list-disc pl-4 text-xs text-emerald-800 space-y-1">
+                                 {lead.fitExplanation?.motivos.map((m, i) => <li key={i}>{m}</li>)}
+                              </ul>
+                           </div>
+                         )}
+
+                         {/* Pontos de Atenção (Vermelho) */}
+                         {(lead.fitExplanation?.faltouConfirmar?.length || 0) > 0 && (
+                           <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                              <span className="flex items-center gap-2 text-xs font-bold text-red-600 uppercase mb-2">
+                                <AlertTriangle size={14}/> Verificar
+                              </span>
+                              <ul className="list-disc pl-4 text-xs text-red-700 space-y-1">
+                                 {lead.fitExplanation?.faltouConfirmar.map((m, i) => <li key={i}>{m}</li>)}
+                              </ul>
+                           </div>
+                         )}
                       </div>
                    </div>
                  ))}
