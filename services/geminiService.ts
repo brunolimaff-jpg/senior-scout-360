@@ -1,12 +1,19 @@
 
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { AccountData, Evidence, FitCriteria, RadarResult, CostInfo, GroundingMetadata, SpiderGraph, SpiderNode, SpiderEdge, DossierUpdate, DossierPlanSection, TemporalEvent, ProspectLead } from "../types";
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { 
+  CostInfo, 
+  GroundingMetadata, 
+  ProspectLead, 
+  TemporalEvent, 
+  AccountData, 
+  Evidence, 
+  SpiderNode, 
+  FitCriteria, 
+  DossierPlanSection, 
+  DossierUpdate 
+} from "../types";
 import { calculateCost } from "./costService";
 import { sanitizePII } from "./apiService";
-import { generateStrategySectionMarkdown } from "./strategyService";
-import { getGlobalCache, setGlobalCache } from "./storageService";
-
-// --- NOVOS SERVIÇOS DE OTIMIZAÇÃO ---
 import { queuedGeminiCall, Priority } from "./requestQueueService";
 import { cachedFetch } from "./advancedCacheService";
 
@@ -25,6 +32,28 @@ const MODELS = {
 };
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Função Helper para limpar e parsear JSON (Substitui responseMimeType quando usamos tools)
+function cleanAndParseJSON(text: string): any {
+  // Remove marcadores de código markdown se existirem (```json ... ```)
+  const cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(cleanText);
+  } catch (error) {
+    console.warn("Gemini: Tentando recuperar JSON malformado...");
+    // Tenta extrair apenas o objeto/array se houver texto em volta
+    const match = cleanText.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    if (match) {
+        try {
+            return JSON.parse(match[0]);
+        } catch (e) {
+            console.error("Falha irrecuperável no parse JSON:", cleanText);
+            return null;
+        }
+    }
+    return null; 
+  }
+}
 
 // Opções para controle refinado de Cache e Fila
 export interface GeminiRequestOptions {
@@ -99,7 +128,6 @@ export const findCnpjByName = async (name: string, ufContext: string = ''): Prom
   const cacheKey = `cnpj_search_${name}_${ufContext}`;
   
   // Cache de 7 dias porque dados cadastrais mudam pouco
-  // Utiliza o novo sistema de cache robusto (L1 RAM + L2 Disk)
   return cachedFetch(
     cacheKey,
     async () => {
@@ -118,24 +146,21 @@ export const findCnpjByName = async (name: string, ufContext: string = ''): Prom
       `;
 
       try {
-        // Prioridade MEDIUM pois é uma ação que pode esperar alguns segundos se a fila estiver cheia
         const response = await queuedGeminiCall<GenerateContentResponse>(
           () => ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: {
               tools: [{ googleSearch: {} }],
-              responseMimeType: "application/json"
+              // responseMimeType REMOVIDO para suportar tools
             }
           }),
           'MEDIUM'
         );
 
-        const text = response.text;
-        if (!text) return null;
-        
-        const data = JSON.parse(text);
-        return data.cnpj || null;
+        const text = response.text || "{}";
+        const data = cleanAndParseJSON(text); // Sanitizer manual
+        return data?.cnpj || null;
       } catch (e) {
         console.error("CNPJ Lookup Error:", e);
         return null;
@@ -152,13 +177,10 @@ export const findCnpjByName = async (name: string, ufContext: string = ''): Prom
 export const generateFlashBriefing = async (lead: ProspectLead): Promise<string> => {
   const cacheKey = `briefing_${lead.id}_${lead.cnpj}`;
   
-  // Usamos o cachedFetch ao invés do getGlobalCache antigo
   return cachedFetch(
     cacheKey,
     async () => {
       const ai = getAiClient();
-      
-      // Sanitização para evitar erro de JSON string
       const companyName = sanitizePII(lead.companyName).substring(0, 100);
       const cnaes = lead.cnaes?.map(c => c.description).join(', ').substring(0, 300) || "Agronegócio Geral";
       const city = lead.city || "Região não informada";
@@ -177,7 +199,6 @@ export const generateFlashBriefing = async (lead: ProspectLead): Promise<string>
       `;
 
       try {
-        // Prioridade HIGH pois o usuário está esperando este texto aparecer no modal
         const response = await queuedGeminiCall<GenerateContentResponse>(
           () => ai.models.generateContent({
             model: MODELS.FAST,
@@ -196,233 +217,206 @@ export const generateFlashBriefing = async (lead: ProspectLead): Promise<string>
   );
 };
 
-// --- TEMPORAL TRACE (Rastro Temporal) ---
+// --- SARA ANALYST: REDAÇÃO ESTRATÉGICA (WRITER AGENT) ---
+export const generateStrategicNarrative = async (contextPayload: any): Promise<string> => {
+  const ai = getAiClient();
+  
+  const systemPrompt = `
+    VOCÊ É: Sara, Analista Sênior de Inteligência de Vendas (Agro).
+    SUA MISSÃO: Escrever um briefing estratégico ("off-the-record") para um Executivo de Contas da Senior Sistemas.
+    
+    O QUE VOCÊ VAI RECEBER: Um JSON com dados brutos da empresa (Faturamento, Cultura, Verticalização, Notícias).
+    O QUE VOCÊ DEVE ENTREGAR: 4 BLOCOS de texto distintos, escritos em PROSA FLUIDA, DIRETA e ANALÍTICA.
+    
+    REGRAS DE TOM E ESTILO:
+    1. ZERO CORPORATÊS: Não use frases vazias.
+    2. REALPOLITIK: Fale da verdade nua e crua.
+    3. CAUSA & EFEITO: Conecte os dados.
+    4. ESPECIFICIDADE: Use os números do JSON.
 
+    REGRAS DE OURO DO PORTFÓLIO:
+    - Agroindústria: Venda GAtec (Originação/Indústria) + ERP (Backoffice).
+    - Produtor: Venda GAtec (Campo) + ERP (Fiscal).
+
+    SAÍDA STRICT (RÍGIDA):
+    1. NÃO use Introduções ("Aqui está...", "Com base nos dados...").
+    2. NÃO use Títulos Markdown (como '# Seção 1: Perfil').
+    3. Retorne OBRIGATORIAMENTE 4 blocos de texto separados pela string delimitadora '|||'.
+    
+    ESTRUTURA EXATA DA RESPOSTA:
+    [Texto do Perfil e Mercado] ||| [Texto da Complexidade Operacional e Dores] ||| [Texto da Proposta de Valor / Fit Senior] ||| [Texto dos Insights de Ataque e Abordagem]
+  `;
+
+  try {
+    const response = await queuedGeminiCall<GenerateContentResponse>(
+      () => ai.models.generateContent({
+        model: MODELS.PRIMARY, 
+        contents: `CONTEXTO DO CLIENTE (JSON): ${JSON.stringify(contextPayload)}`,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.3
+        }
+      }),
+      'HIGH'
+    );
+
+    const rawText = response.text || "";
+    // Limpeza de segurança caso o modelo seja "educado" demais no início
+    const cleanText = rawText.replace(/^Ok.*?briefing\./i, '').trim();
+    
+    // Validação básica: se não tiver separador, o frontend vai falhar, então tentamos um fallback
+    if (!cleanText.includes('|||')) {
+        console.warn("Gemini não retornou separadores |||. Retornando texto bruto.");
+        return cleanText;
+    }
+
+    return cleanText;
+  } catch (error) {
+    console.error("Erro no Writer Agent:", error);
+    return "Erro ao gerar narrativa. Utilize os dados brutos nos cards ao lado.";
+  }
+};
+
+// --- TEMPORAL TRACE (Rastro Temporal) ---
 export const fetchTemporalTrace = async (name: string, city: string, uf: string, addLog?: any): Promise<{ trace: TemporalEvent[], costInfo: CostInfo }> => {
   const cacheKey = `temporal_${name}_${city}`;
   
-  // Utiliza o novo wrapper com fila e cache integrado
   const result = await callGeminiWithFallback<TemporalEvent[]>(
     async (model) => {
       const ai = getAiClient();
-      const lastName = name.split(' ').pop();
-      
       const prompt = `
         ATUE COMO: Investigador de Rastro Temporal (Corporativo/Agro).
         ALVO: "${name}" em "${city}-${uf}".
+        TAREFA: Encontre eventos relevantes dos últimos 3 ANOS.
         
-        TAREFA: Encontre eventos relevantes dos últimos 3 ANOS (2022, 2023, 2024).
-        
-        DORKS PARA BUSCA:
-        1. "${name}" multa after:2022
-        2. "${name}" (expansão OR aquisição OR investimento) after:2023
-        3. "${name}" vaga (TI OR contábil) after:2024
-        4. "${city}" (licitação OR edital) "${lastName}" after:2022
-        5. "${name}" certificação after:2023
-
-        EXTRAÇÃO:
-        - Evento (Título claro e curto)
-        - Data (Ano ou Data completa)
-        - Categoria (MULTA, EXPANSAO, VAGA, EDITAL, CERTIFICACAO, GERAL)
-        - URL da fonte
-        - Fonte (Nome amigável)
-
-        RETORNO: JSON Array ordenado por data descendente.
+        RETORNE JSON:
+        [
+          { "title": "...", "date": "YYYY-MM-DD", "url": "...", "source": "...", "category": "MULTA|EXPANSAO|VAGA|EDITAL|CERTIFICACAO|GERAL" }
+        ]
       `;
-
+      
       const response = await ai.models.generateContent({
         model: model,
         contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                date: { type: Type.STRING },
-                category: { type: Type.STRING, enum: ["MULTA", "EXPANSAO", "VAGA", "EDITAL", "CERTIFICACAO", "GERAL"] },
-                url: { type: Type.STRING },
-                source: { type: Type.STRING }
-              },
-              required: ["title", "date", "category", "url", "source"]
-            }
-          }
+        config: { 
+            tools: [{ googleSearch: {} }],
+            // responseMimeType REMOVIDO
         }
       });
-
-      const result = JSON.parse(response.text || "[]");
-      const trace = result.map((e: any, i: number) => ({ ...e, id: `temp-${Date.now()}-${i}` }));
+      
+      const text = response.text || "[]";
+      const result = cleanAndParseJSON(text); // Sanitizer
+      const trace = Array.isArray(result) ? result.map((e: any, i: number) => ({ ...e, id: `temp-${Date.now()}-${i}` })) : [];
       return { result: trace, usage: response.usageMetadata, modelUsed: model };
     }, 
     'fetchTemporalTrace', 
     addLog,
-    { 
-      priority: 'MEDIUM',
-      cacheKey,
-      cacheTTL: CACHE_TTL
-    }
+    { priority: 'MEDIUM', cacheKey, cacheTTL: CACHE_TTL }
   );
-
   return { trace: result.data, costInfo: result.costInfo };
 };
 
-// --- QUERY EXPANSION & SYNONYMS ---
-
 export async function buildQueryVariants(account: AccountData): Promise<string[]> {
-  const base = [
+  return [
     `"${account.companyName}" ${account.municipality}`,
     `"${account.companyName}" tecnologia agro`,
     `"${account.companyName}" investimentos expansão`,
-    `"${account.companyName}" processo jurídico dívida`,
+    `"${account.companyName}" processo jurídico dívida`
   ];
-  return base;
 }
 
-// --- EVIDENCE SEARCH (STRICT PILLARS) ---
-
 export const searchEvidence = async (account: AccountData, addLog?: (msg: string, type: any) => void): Promise<{ evidence: Evidence[], costInfo: CostInfo }> => {
-  const cacheKey = `evidence_${account.cnpj || account.companyName}_${account.municipality}`;
-  
-  // Utiliza o novo wrapper com fila e cache integrado
-  const result = await callGeminiWithFallback<Evidence[]>(
+    const cacheKey = `evidence_${account.cnpj || account.companyName}_${account.municipality}`;
+    const result = await callGeminiWithFallback<Evidence[]>(
     async (modelName) => {
       const ai = getAiClient();
       const queries = await buildQueryVariants(account);
+      const prompt = `ATUE COMO: Analista de Inteligência Competitiva Sênior. ALVO: "${account.companyName}". Retorne JSON com evidências: [{title, text, url, category, recommendation}]`;
       
-      const prompt = `
-      ATUE COMO: Analista de Inteligência Competitiva Sênior.
-      ALVO: "${account.companyName}" (${account.municipality}-${account.uf}).
-      
-      MISSÃO: Encontre de 15 a 20 sinais vitais divididos nestes 4 pilares:
-      1. EXPANSÃO: Novas unidades, silos, frotas, contratações em massa ou planos de investimento.
-      2. TECNOLOGIA: Softwares usados (ERP, CRM), vagas que pedem conhecimento em sistemas, automação no campo.
-      3. FINANCEIRO: Faturamentos citados, capital social, saúde de crédito, aportes de sócios ou exportações.
-      4. JURÍDICO/RISCO: Recuperação judicial, multas ambientais pesadas, passivos trabalhistas ou disputas societárias.
-
-      REGRAS:
-      - Seja analítico: Não apenas cite o fato, explique por que é um sinal tático para venda.
-      - Extraia a URL exata da fonte.
-      - Retorne APENAS o JSON no formato solicitado.
-
-      OUTPUT SCHEMA:
-      [
-        {
-          "title": "Título Curto",
-          "text": "Análise do fato e seu impacto tático (max 250 chars)",
-          "url": "URL da fonte",
-          "category": "Expansão" | "Tecnologia" | "Financeiro" | "Jurídico",
-          "recommendation": "MANTER" | "DESCARTE"
-        }
-      ]
-      `;
-
       const response = await ai.models.generateContent({
         model: modelName,
         contents: `${prompt}\n\nCONSULTE ESTAS VARIAÇÕES:\n${queries.join('\n')}`,
-        config: {
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json"
+        config: { 
+            tools: [{ googleSearch: {} }],
+            // responseMimeType REMOVIDO
         }
       });
-
-      const rawEvidence: any[] = JSON.parse(response.text || "[]");
+      
+      const rawEvidence: any[] = cleanAndParseJSON(response.text || "[]") || [];
       const evidence = rawEvidence.map((e, idx) => ({
         id: `ev-${Date.now()}-${idx}`,
-        title: sanitizePII(e.title),
-        text: sanitizePII(e.text),
-        snippet: sanitizePII(e.text),
-        url: e.url,
-        category: e.category,
+        title: e.title || "Evidência encontrada",
+        text: e.text || "",
+        snippet: e.snippet || e.text || "",
+        url: e.url || "",
+        source: e.source || "Web",
+        type: 'web' as const,
+        category: e.category || 'Geral',
         selected: e.recommendation === 'MANTER',
-        recommendation: e.recommendation,
-        source: new URL(e.url || 'http://google.com').hostname.replace('www.', ''),
-        type: 'web' as const
+        recommendation: e.recommendation || 'NEUTRO'
       }));
-
-      return {
-        result: evidence,
-        usage: response.usageMetadata,
-        modelUsed: modelName
-      };
-    }, 
-    'searchEvidence', 
-    addLog,
-    {
-      priority: 'HIGH', // Evidência é o coração do produto
-      cacheKey,
-      cacheTTL: CACHE_TTL
-    }
+      return { result: evidence, usage: response.usageMetadata, modelUsed: modelName };
+    }, 'searchEvidence', addLog, { priority: 'HIGH', cacheKey, cacheTTL: CACHE_TTL }
   );
-
   return { evidence: result.data, costInfo: result.costInfo };
 };
 
 export async function analyzeGraphRelationships(rootNode: SpiderNode, account: AccountData, addLog?: any) {
-    const ai = getAiClient();
-    const prompt = `Analise grupo econômico para ${account.companyName}`;
-    
-    // Agora usando o novo wrapper
-    return callGeminiWithFallback<any>(
-      async (model) => {
-        const resp = await ai.models.generateContent({ model, contents: prompt, config: { tools: [{googleSearch:{}}], responseMimeType: "application/json" }});
-        return { result: JSON.parse(resp.text || '{"nodes":[], "edges":[]}'), usage: resp.usageMetadata, modelUsed: model };
-      }, 
-      'graph', 
-      addLog,
-      { priority: 'MEDIUM' } // Sem cacheKey, pois grafos são dinâmicos na sessão
-    );
+    return callGeminiWithFallback<any>(async (model) => {
+        const ai = getAiClient();
+        const resp = await ai.models.generateContent({ 
+            model, 
+            contents: `Analise grupo econômico para ${account.companyName}. Retorne JSON {nodes:[], edges:[]}`, 
+            config: { 
+                tools: [{googleSearch:{}}],
+                // responseMimeType REMOVIDO
+            }
+        });
+        return { result: cleanAndParseJSON(resp.text || '{}'), usage: resp.usageMetadata, modelUsed: model };
+    }, 'graph', addLog, { priority: 'MEDIUM' });
 }
 
 export async function findSimilarAccounts(current: AccountData, criteria: FitCriteria) {
-    const ai = getAiClient();
-    const prompt = `Encontre empresas similares a ${current.companyName}`;
-    
-    return callGeminiWithFallback<any>(
-      async (model) => {
-        const resp = await ai.models.generateContent({ model, contents: prompt, config: { tools: [{googleSearch:{}}], responseMimeType: "application/json" }});
-        return { result: JSON.parse(resp.text || '{"accounts":[]}'), usage: resp.usageMetadata, modelUsed: model };
-      }, 
-      'similar', 
-      undefined,
-      { priority: 'LOW' } // Similaridade é "nice to have", prioridade baixa
-    );
+    return callGeminiWithFallback<any>(async (model) => {
+        const ai = getAiClient();
+        const resp = await ai.models.generateContent({ 
+            model, 
+            contents: `Encontre empresas similares a ${current.companyName}. Retorne JSON {accounts:[]}`, 
+            config: { 
+                tools: [{googleSearch:{}}],
+                // responseMimeType REMOVIDO
+            }
+        });
+        return { result: cleanAndParseJSON(resp.text || '{}'), usage: resp.usageMetadata, modelUsed: model };
+    }, 'similar', undefined, { priority: 'LOW' });
 }
 
 export async function generateDossierPlan(account: AccountData, count: number, addLog?: any) {
     const ai = getAiClient();
-    // Wrap direto com fila, sem cache complexo
     const resp = await queuedGeminiCall<GenerateContentResponse>(() => ai.models.generateContent({ 
         model: MODELS.FALLBACK, 
-        contents: `Crie plano para dossiê de ${account.companyName}`, 
-        config: { responseMimeType: "application/json" }
+        contents: `Crie plano para dossiê de ${account.companyName}. Retorne JSON.`, 
+        config: { responseMimeType: "application/json" } // OK: Sem tools
     }), 'MEDIUM');
-    
     return { plan: JSON.parse(resp.text || "[]"), costInfo: calculateCost(MODELS.FALLBACK, resp.usageMetadata?.promptTokenCount||0, resp.usageMetadata?.candidatesTokenCount||0) };
 }
 
 export async function generateDossierSection(section: DossierPlanSection, account: AccountData, digest: string) {
     const ai = getAiClient();
-    // Wrap direto com fila
     const resp = await queuedGeminiCall<GenerateContentResponse>(() => ai.models.generateContent({ 
         model: MODELS.PRIMARY, 
         contents: `Escreva seção ${section.title} para ${account.companyName} usando: ${digest}` 
     }), 'MEDIUM');
-
     return { markdown: resp.text || "", costInfo: calculateCost(MODELS.PRIMARY, resp.usageMetadata?.promptTokenCount||0, resp.usageMetadata?.candidatesTokenCount||0) };
 }
 
 export async function askDossierSmart(content: string, account: AccountData, q: string, addLog?: any) {
     const ai = getAiClient();
-    // Wrap direto com fila, prioridade alta pois é chat interativo
     const resp = await queuedGeminiCall<GenerateContentResponse>(() => ai.models.generateContent({ 
         model: MODELS.PRIMARY, 
         contents: `Responda sobre ${account.companyName}: ${q} com base no dossiê: ${content}`, 
-        config: { tools: [{googleSearch:{}}] }
+        config: { tools: [{googleSearch:{}}] } // responseMimeType não definido, OK
     }), 'HIGH');
-
     return { 
         answer: resp.text || "", 
         costInfo: calculateCost(MODELS.PRIMARY, resp.usageMetadata?.promptTokenCount||0, resp.usageMetadata?.candidatesTokenCount||0), 
@@ -431,87 +425,40 @@ export async function askDossierSmart(content: string, account: AccountData, q: 
     };
 }
 
-/**
- * BUSCA DE DADOS CADASTRAIS REAIS (HECTARES, FUNCIONÁRIOS, SÓCIOS)
- * Usa o modelo para inferir dados baseados em conhecimento público ou snippets.
- */
 export const searchRealData = async (lead: ProspectLead): Promise<{ 
-  hectares: number, 
-  funcionarios: number, 
-  socios: string[], 
-  grupo: string, 
-  resumo: string,
-  fonte: string 
+  hectares: number, funcionarios: number, socios: string[], grupo: string, resumo: string, fonte: string 
 }> => {
   const cacheKey = `real_data_v2_${lead.cnpj.replace(/\D/g, '')}`;
-  
-  // Utiliza o novo cachedFetch
   return cachedFetch(
     cacheKey,
     async () => {
       const ai = getAiClient();
       const cnaeText = lead.cnaes?.map(c => c.description).join(', ').substring(0, 1000) || '';
-      const isHolding = lead.companyName.toUpperCase().includes('HOLDING') || lead.companyName.toUpperCase().includes('PARTICIPACOES') || lead.companyName.toUpperCase().includes('INVESTIMENTOS');
-
-      const prompt = `
-        Atue como um analista de inteligência de mercado do Agronegócio Brasileiro (Senior Scout).
-        Alvo: ${lead.companyName} (CNPJ: ${lead.cnpj})
-        Cidade: ${lead.city}/${lead.uf}
-        Atividade: ${cnaeText}
-
-        Busque em sua base de conhecimento E NA WEB (notícias, relatórios, LinkedIn, dados públicos) por fatos sobre esta empresa.
-        ${isHolding ? 'ATENÇÃO: Esta empresa parece ser uma HOLDING. Tente mapear o Grupo Econômico e suas controladas.' : ''}
-
-        Retorne estritamente um JSON com:
-        1. "hectares": number (estimativa real de área plantada/própria, 0 se não achar)
-        2. "funcionarios": number (vínculos estimados, 0 se não achar)
-        3. "socios": array de strings (nomes dos principais sócios ou família controladora)
-        4. "grupo": string (Nome do Grupo Econômico se identificado, ou "N/D")
-        5. "resumo": string (breve resumo da operação e estrutura, máx 200 caracteres)
-        6. "fonte": string (origem principal da informação, ex: LinkedIn, Relatório Sustentabilidade)
-
-        Regras Rígidas:
-        - NÃO INVENTE DADOS. Se não souber, retorne 0 ou "N/D".
-        - Para sócios, busque por "Família X", "Irmãos Y" ou nomes listados em QSA público.
-        - Se for Holding, explique no resumo quem ela controla.
-      `;
-
-      try {
-        // Enfileira a chamada
-        const response = await queuedGeminiCall<GenerateContentResponse>(
+      const prompt = `Atue como um analista de inteligência... Alvo: ${lead.companyName}... Retorne JSON: {hectares, funcionarios, socios, grupo, resumo, fonte}`;
+      
+      const response = await queuedGeminiCall<GenerateContentResponse>(
           () => ai.models.generateContent({
-            model: MODELS.PRIMARY, // Usando o modelo Pro para melhor pesquisa
+            model: MODELS.PRIMARY,
             contents: prompt,
-            config: {
-              tools: [{ googleSearch: {} }],
-              responseMimeType: "application/json"
+            config: { 
+                tools: [{ googleSearch: {} }], 
+                // responseMimeType REMOVIDO
             }
           }),
           'MEDIUM'
-        );
-
-        const text = response.text;
-        if (!text) return { hectares: 0, funcionarios: 0, socios: [], grupo: "N/D", resumo: "Sem dados", fonte: "IA" };
-
-        const result = JSON.parse(text);
-        
-        return {
+      );
+      
+      const result = cleanAndParseJSON(response.text || "{}") || {};
+      
+      return {
           hectares: typeof result.hectares === 'number' ? result.hectares : 0,
           funcionarios: typeof result.funcionarios === 'number' ? result.funcionarios : 0,
           socios: Array.isArray(result.socios) ? result.socios : [],
           grupo: result.grupo || "N/D",
           resumo: result.resumo || "",
           fonte: result.fonte || "Estimativa IA"
-        };
-
-      } catch (error) {
-        console.error("Erro na busca real Gemini:", error);
-        return { hectares: 0, funcionarios: 0, socios: [], grupo: "N/D", resumo: "Erro na conexão IA", fonte: "Erro" };
-      }
+      };
     },
-    {
-      ttl: CACHE_TTL,
-      tags: [`real_data_${lead.cnpj}`]
-    }
+    { ttl: CACHE_TTL, tags: [`real_data_${lead.cnpj}`] }
   );
 };

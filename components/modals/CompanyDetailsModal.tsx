@@ -115,7 +115,7 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
 
   const copyToClipboard = () => {
     if (enrichment?.resumo) {
-      navigator.clipboard.writeText(enrichment.resumo);
+      navigator.clipboard.writeText(enrichment.resumo.replace(/\|\|\|/g, '\n\n'));
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     }
@@ -125,6 +125,53 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
 
   const formatMoney = (val?: number) => 
     val ? val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
+
+  // Parser robusto para os blocos de texto
+  const renderResumoExecutivo = () => {
+    if (!enrichment?.resumo) return null;
+
+    // Divide pelo separador estrito
+    let blocks = enrichment.resumo.split('|||').map(b => b.trim()).filter(b => b.length > 0);
+    
+    // Fallback: Se não houver separador, tenta dividir por duplo parágrafo (legado/erro da IA)
+    if (blocks.length <= 1 && enrichment.resumo.includes('\n\n')) {
+        blocks = enrichment.resumo.split('\n\n').map(b => b.trim()).filter(b => b.length > 0);
+    }
+
+    // Configuração dos 4 blocos fixos
+    const sectionConfigs = [
+        { icon: '🏢', title: 'Perfil & Mercado', color: 'text-teal-800', border: 'border-teal-200' },
+        { icon: '⚙️', title: 'Complexidade Operacional', color: 'text-purple-800', border: 'border-purple-200' },
+        { icon: '🎯', title: 'Oportunidades Senior', color: 'text-indigo-800', border: 'border-indigo-200' },
+        { icon: '💡', title: 'Insights de Abordagem', color: 'text-amber-800', border: 'border-amber-200' }
+    ];
+
+    return (
+        <div className="space-y-6">
+            {blocks.map((block, idx) => {
+                // Se houver mais blocos que config, usa um genérico
+                const config = sectionConfigs[idx] || { icon: '📝', title: 'Análise Adicional', color: 'text-gray-800', border: 'border-gray-200' };
+                
+                return (
+                    <div key={idx} className="bg-white/90 backdrop-blur p-5 rounded-xl border-l-4 border-teal-500 shadow-sm">
+                        <div className={`flex items-center gap-2 mb-3 pb-2 border-b ${config.border}`}>
+                            <span className="text-xl">{config.icon}</span>
+                            <span className={`font-bold text-sm uppercase tracking-wide ${config.color}`}>
+                                {config.title}
+                            </span>
+                        </div>
+                        <p 
+                            className="text-gray-800 leading-relaxed text-base font-medium"
+                            style={{ textAlign: 'justify', hyphens: 'auto' }}
+                        >
+                            {block}
+                        </p>
+                    </div>
+                );
+            })}
+        </div>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
@@ -287,38 +334,8 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
                           </div>
                         )}
                         
-                        {/* Texto do resumo - parágrafos bem separados */}
-                        <div className="space-y-6">
-                          {enrichment.resumo.split('\n\n').filter(p => p.trim()).map((paragrafo, idx) => {
-                            // Identifica seção por ordem
-                            let sectionIcon = '📊';
-                            let sectionTitle = '';
-                            
-                            if (idx === 0) { sectionIcon = '🏢'; sectionTitle = 'Perfil & Mercado'; }
-                            else if (idx === 1) { sectionIcon = '⚙️'; sectionTitle = 'Complexidade Operacional'; }
-                            else if (idx === 2) { sectionIcon = '🎯'; sectionTitle = 'Oportunidades Senior'; }
-                            else if (idx === 3) { sectionIcon = '💡'; sectionTitle = 'Insights Estratégicos'; }
-                            
-                            return (
-                              <div key={idx} className="bg-white/90 backdrop-blur p-5 rounded-xl border-l-4 border-teal-500 shadow-sm">
-                                {sectionTitle && (
-                                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-teal-200">
-                                    <span className="text-xl">{sectionIcon}</span>
-                                    <span className="font-bold text-teal-800 text-sm uppercase tracking-wide">
-                                      {sectionTitle}
-                                    </span>
-                                  </div>
-                                )}
-                                <p 
-                                  className="text-gray-800 leading-relaxed text-base font-medium"
-                                  style={{ textAlign: 'justify', hyphens: 'auto' }}
-                                >
-                                  {paragrafo}
-                                </p>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        {/* RENDERIZAÇÃO ESTRUTURADA DOS BLOCOS DE TEXTO */}
+                        {renderResumoExecutivo()}
                         
                         {/* Botões de ação */}
                         <div className="flex flex-col sm:flex-row gap-3 mt-6">
@@ -399,7 +416,7 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
                             <div className="flex items-center gap-2 flex-wrap">
                             <span className={`px-3 py-1 rounded-full text-xs font-bold ${
                                 enrichment.funcionarios_validados.fonte === 'RAIS' ? 'bg-green-600 text-white' :
-                                enrichment.funcionarios_validados.fonte === 'CAGED' ? 'bg-green-500 text-white' :
+                                enrichment.funcionarios_validados.fonte === 'CAGED' ? 'bg-green-50 text-white' :
                                 enrichment.funcionarios_validados.fonte === 'NOTICIA' ? 'bg-blue-500 text-white' :
                                 enrichment.funcionarios_validados.fonte === 'VAGAS' ? 'bg-purple-500 text-white' :
                                 'bg-amber-500 text-white'
