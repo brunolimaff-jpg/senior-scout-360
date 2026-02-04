@@ -37,7 +37,7 @@ export async function runPFSearchPipeline(
     try {
       const phasePrompt = phase.prompt.replace('{city}', city).replace('{uf}', uf);
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-2.5-flash',
         contents: `ATUE COMO: Investigador de Mercado Agro. FASE: ${phase.name}. 
         BUSQUE: Produtores Pessoa Física reais (Pessoas, não empresas).
         ALVO: ${vertical} em ${city}/${uf}.

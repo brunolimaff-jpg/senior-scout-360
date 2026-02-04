@@ -25,7 +25,7 @@ export async function discoverPFRelationships(
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-2.5-flash',
         contents: `${strat.prompt} 
         RETORNE JSON: [{ "cnpj": "apenas numeros", "razao": "string", "uf": "string", "cidade": "string", "url": "string", "snippet": "string", "motivo": "string" }]
         REGRAS: 1. Zero Ficção. 2. Apenas se achar URL real.`,

@@ -1,9 +1,69 @@
 
+import { SASResult } from './services/marketEstimator';
+
 export enum OutputProfile {
   SHORT = 'Curto (1-2 pgs)',
   STANDARD = 'Padrão (5-10 pgs)',
   COMPLETE = 'Completo (10-20 pgs)'
 }
+
+export interface RetryStatus {
+  isRetrying: boolean;
+  attempt: number;
+  maxRetries: number;
+  nextRetryInMs: number;
+  message?: string;
+}
+
+// --- TIPOS DE SERVIÇO (NOVO MOTOR) ---
+
+export interface DadosEmpresa {
+  cnpj: string;
+  razao_social: string;
+  nome_fantasia: string;
+  situacao_cadastral: string;
+  data_inicio_atividade: string;
+  cnae_fiscal: string;
+  cnae_fiscal_descricao: string;
+  descricao_tipo_de_logradouro: string;
+  logradouro: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cep: string;
+  uf: string;
+  municipio: string;
+  capital_social: number;
+  natureza_juridica?: string;
+  qsa: Array<{
+    nome_socio: string;
+    qualificacao_socio: string;
+    faixa_etaria?: string;
+    pais?: string;
+  }>;
+}
+
+export interface ScoreSAS {
+  score: number; // 0 a 1000
+  tier: 'BRONZE' | 'PRATA' | 'OURO' | 'DIAMANTE';
+  analise: {
+    musculo: { score: number; justificativa: string };
+    complexidade: { score: number; justificativa: string };
+    gente: { score: number; justificativa: string };
+    momento: { score: number; justificativa: string };
+  };
+  produtosSugeridos: string[];
+  riscos: string[];
+  oportunidades: string[];
+}
+
+export interface LeadAgro {
+  dadosCadastrais: DadosEmpresa;
+  inteligencia: ScoreSAS;
+  dataAuditoria: string;
+}
+
+// --- TIPOS LEGADOS (MANTIDOS P/ COMPATIBILIDADE UI) ---
 
 export interface TemporalEvent {
   id: string;
@@ -123,12 +183,13 @@ export interface PFProspect {
 }
 
 export interface ProspectLead {
+  // ========== CAMPOS EXISTENTES ==========
   id: string;
   companyName: string;
   tradeName?: string;
   cnpj: string;
   cpf?: string;
-  cpfStatus?: 'VALIDADO_FONTE' | 'VALIDADO_API' | 'PENDENTE' | 'MANUAL';
+  cpfStatus?: 'VALIDADO_FONTE' | 'VALIDADO_API' | 'VALIDADO_GEMINI' | 'PENDENTE' | 'MANUAL';
   city: string;
   uf: string;
   isValidated: boolean;
@@ -168,6 +229,32 @@ export interface ProspectLead {
   isPF?: boolean;
   fonte?: string;
   confiabilidade?: 'ALTA' | 'MEDIA' | 'BAIXA';
+
+  // ========== CAMPOS SAS 4.0 ==========
+  nome?: string; // alias para companyName
+  cidade?: string; // alias para city
+  estado?: string; // alias para uf
+  tipo?: 'PF' | 'PJ';
+  hectaresAudited?: number;
+  hectaresEstimado?: number;
+  culturas?: string[];
+  cultura_principal?: string;
+  cnae_principal?: string;
+  cnaeSecundario?: string[];
+  naturezaJuridica?: 'S.A.' | 'Ltda' | 'Cooperativa' | string;
+  
+  // Booleans estruturais
+  agroindustria?: boolean;
+  silos?: boolean;
+  logistica?: boolean;
+  dominio?: boolean;
+  vagas_ti?: boolean;
+  conectividade?: boolean;
+  
+  // Resultado SAS
+  sasResult?: SASResult; // Novo Objeto SAS 4.0 Completo
+  totalScore?: number;
+  tier?: 'DIAMANTE' | 'OURO' | 'PRATA' | 'BRONZE';
 }
 
 export interface AgroTacticalAnalysis {

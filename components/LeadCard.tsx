@@ -1,181 +1,202 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { 
-  Building2, MapPin, TrendingUp, ScanSearch, 
-  Crown, DollarSign, BrainCircuit, Users, Target, Activity
+  Building2, MapPin, Target, Network,
+  TrendingUp, BrainCircuit, Users, Zap
 } from 'lucide-react';
 import { ProspectLead } from '../types';
+import { calculateSeniorAgroScore, getTierColor, getTierEmoji } from '../services/marketEstimator';
+import { formatCNPJ } from '../utils/formatCNPJ';
 
 interface LeadCardProps {
   lead: ProspectLead;
-  onAction: () => void; // Ação única: Mapear Conta
+  onAction: (lead: ProspectLead) => void;
 }
 
 export const LeadCard: React.FC<LeadCardProps> = ({ lead, onAction }) => {
   
-  // 1. Definição de ELITE (Regra de Negócio Visual)
-  const isElite = (lead.capitalSocial || 0) > 10000000 || (lead.metadata?.hectaresTotal || 0) > 5000;
-  
-  // 2. Formatação Financeira
-  const formatCurrency = (val?: number) => {
-    if (!val) return 'N/D';
-    if (val >= 1000000000) return `R$ ${(val / 1000000000).toFixed(1)} Bi`;
-    if (val >= 1000000) return `R$ ${(val / 1000000).toFixed(1)} MM`;
-    if (val >= 1000) return `R$ ${(val / 1000).toFixed(1)} K`;
-    return `R$ ${val.toFixed(2)}`;
+  // ========== MOTOR SAS 4.0 (On-the-fly Calculation se não persistido) ==========
+  const sas = useMemo(() => {
+    // Se já temos o resultado persistido, usamos
+    if (lead.sasResult) return lead.sasResult;
+
+    // Caso contrário, calculamos agora (Lazy Calc)
+    return calculateSeniorAgroScore({
+      razao_social: lead.companyName,
+      capital_social: lead.capitalSocial || 0,
+      hectares: lead.hectaresAudited || lead.hectaresEstimado || lead.hectares || 0,
+      natureza_juridica: lead.naturezaJuridica || (lead.isSA ? 'S.A.' : 'Ltda'),
+      cultura_principal: lead.cnae_principal || lead.cnaes?.[0]?.description || '',
+      cnae_principal: lead.cnae_principal || lead.cnaes?.[0]?.code || '',
+      funcionarios: lead.funcionarios || lead.numFuncionarios || 0,
+      agroindustria: lead.agroindustria || lead.tacticalAnalysis?.badges?.includes('INDUSTRIA'),
+      silos: lead.silos || lead.tacticalAnalysis?.badges?.includes('ARMAZEM'),
+      logistica: lead.logistica || lead.tacticalAnalysis?.badges?.includes('FROTA'),
+      dominio: lead.dominio || !!lead.website,
+      vagas_ti: lead.vagas_ti,
+      conectividade: lead.conectividade,
+      cnpj: lead.cnpj
+    });
+  }, [lead]);
+
+  const tierColor = getTierColor(sas.tier);
+  const tierEmoji = getTierEmoji(sas.tier);
+
+  // Helper para renderizar a barra de progresso de um pilar
+  const renderPilar = (label: string, score: number, max: number, icon: React.ReactNode, colorClass: string, tooltip: string) => {
+    const percent = Math.min(100, (score / max) * 100);
+    return (
+      <div className="flex flex-col gap-1.5" title={tooltip}>
+        <div className="flex justify-between items-center text-xs">
+          <span className={`font-bold flex items-center gap-1.5 ${colorClass}`}>
+            {icon} {label}
+          </span>
+          <span className="font-mono font-bold text-slate-600 text-[10px]">{score}/{max}</span>
+        </div>
+        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+          <div 
+            className={`h-full rounded-full transition-all duration-1000 ${colorClass.replace('text-', 'bg-')}`} 
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      </div>
+    );
   };
 
-  // 3. Simulação Visual SAS 4.0 (Barras de Progresso)
-  const cap = lead.capitalSocial || 0;
-  
-  // Músculo: Capital ou Hectares
-  let scoreMusculo = 30;
-  if (cap > 20000000) scoreMusculo = 100;
-  else if (cap > 5000000) scoreMusculo = 75;
-  else if (cap > 1000000) scoreMusculo = 50;
-
-  // Complexidade: Atividade (Indústria/Semente > Grãos > Pecuária)
-  const isInd = lead.cnaes?.some(c => c.description.includes('INDUSTRIA') || c.description.includes('SEMENTE'));
-  const scoreComplex = isInd ? 90 : 50;
-
-  // Gente: Estimativa baseada em Capital (Proxy)
-  const estFunc = Math.ceil(cap / 300000); 
-  const scoreGente = Math.min(100, Math.max(20, (estFunc / 50) * 100));
-
-  // Momento: S.A. ou Digital
-  const scoreMomento = lead.isSA ? 100 : 40;
-
   return (
-    <div className={`group relative bg-white rounded-xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden flex flex-col ${isElite ? 'border-amber-200 shadow-amber-50/50' : 'border-slate-200 shadow-sm'}`}>
-      
-      {/* ELITE GLOW HEADER */}
-      {isElite && (
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500"></div>
-      )}
+    <div 
+      className={`
+        bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 
+        border border-slate-200 overflow-hidden flex flex-col h-full relative group
+        hover:border-indigo-300 cursor-pointer
+      `}
+      onClick={() => onAction(lead)}
+    >
+      {/* Top Border Indicator (Tier Color) */}
+      <div className={`h-1.5 w-full ${tierColor}`}></div>
 
-      {/* BODY CONTENT */}
-      <div className="p-5 flex-1 flex flex-col">
+      <div className="p-5 flex flex-col h-full">
         
-        {/* HEADER: NOME & SCORE */}
-        <div className="flex justify-between items-start mb-3">
-           <div className="flex-1 min-w-0 pr-3">
-              <h3 className="text-lg font-black text-slate-800 tracking-tight leading-none truncate flex items-center gap-2 group-hover:text-emerald-700 transition-colors">
-                {lead.companyName}
-                {isElite && <Crown size={16} className="text-amber-500 fill-amber-100 flex-shrink-0" />}
-              </h3>
-              <div className="flex items-center gap-2 mt-1.5">
-                 <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                    <Building2 size={10} /> {lead.cnpj || 'CPF/PENDENTE'}
-                 </div>
-                 <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                    <MapPin size={10} /> {lead.city}/{lead.uf}
-                 </div>
+        {/* HEADER: Identificação & Tier */}
+        <div className="flex justify-between items-start gap-3 mb-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+               <h3 className="text-lg font-black text-slate-800 leading-tight truncate uppercase" title={lead.companyName}>
+                 {lead.companyName}
+               </h3>
+               {lead.source === 'Senior MI' && <span className="bg-purple-100 text-purple-700 text-[9px] font-bold px-1.5 rounded border border-purple-200">MI</span>}
+            </div>
+            
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                {lead.cnpj && (
+                  <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                    {formatCNPJ(lead.cnpj)}
+                  </span>
+                )}
+                <span className="flex items-center gap-1 truncate max-w-[120px]">
+                  <MapPin size={12} /> {lead.city}/{lead.uf}
+                </span>
               </div>
-           </div>
+              
+              {/* Badges Rápidos (Flags) */}
+              <div className="flex gap-1 mt-1.5 flex-wrap">
+                {sas.flags.big_fish && (
+                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[9px] font-bold uppercase tracking-wide">
+                    🐋 Big Fish
+                  </span>
+                )}
+                {sas.flags.s_a && (
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded text-[9px] font-bold uppercase tracking-wide">
+                    🏢 S.A.
+                  </span>
+                )}
+                {sas.flags.sementeiro && (
+                  <span className="px-2 py-0.5 bg-green-50 text-green-700 border border-green-100 rounded text-[9px] font-bold uppercase tracking-wide">
+                    🌱 Sementeiro
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
 
-           {/* SCORE BOX */}
-           <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-lg p-2 min-w-[60px]">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">SAS</span>
-              <span className={`text-lg font-black leading-none ${isElite ? 'text-amber-600' : 'text-slate-700'}`}>
-                {lead.score || 50}
-              </span>
-           </div>
+          {/* TIER BADGE (Score Visual) */}
+          <div className={`
+            flex flex-col items-center justify-center p-2 rounded-xl min-w-[70px] shadow-sm border
+            ${tierColor.replace('bg-gradient-to-br', 'bg-opacity-10 bg-white border-opacity-20')}
+            ${sas.tier === 'DIAMANTE' ? 'border-cyan-200 bg-cyan-50' : 
+              sas.tier === 'OURO' ? 'border-amber-200 bg-amber-50' : 
+              sas.tier === 'PRATA' ? 'border-slate-200 bg-slate-50' : 
+              'border-orange-200 bg-orange-50'}
+          `}>
+             <div className="text-2xl drop-shadow-sm filter">{tierEmoji}</div>
+             <div className="text-xl font-black text-slate-800 leading-none mt-1">{sas.sas_final}</div>
+             <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">SAS 4.0</div>
+          </div>
         </div>
 
-        {/* BADGES ROW */}
-        <div className="flex flex-wrap gap-2 mb-5">
-           {isElite && (
-             <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[9px] font-black uppercase border border-amber-200 flex items-center gap-1">
-               <Crown size={10} className="fill-amber-600"/> TOP 1% AGRO
-             </span>
-           )}
-           {lead.cnaes?.some(c => c.description.includes('SOJA') || c.description.includes('CEREAIS')) && (
-             <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-bold uppercase border border-emerald-100">🌱 Produtor</span>
-           )}
-           {lead.isSA && (
-             <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold uppercase border border-blue-100">🏢 S.A.</span>
-           )}
+        {/* BODY: Os 4 Pilares (Grid) */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-4 mb-6 bg-slate-50/50 p-3 rounded-xl border border-slate-100">
+          
+          {/* 1. Músculo */}
+          {renderPilar(
+            "Músculo", 
+            sas.pilar_musculo, 
+            400, 
+            <TrendingUp size={12} />, 
+            "text-blue-600",
+            `Capacidade Financeira & Hectares (Score: ${sas.pilar_musculo}/400)`
+          )}
+
+          {/* 2. Complexidade */}
+          {renderPilar(
+            "Complex.", 
+            sas.pilar_complexidade, 
+            250, 
+            <BrainCircuit size={12} />, 
+            "text-purple-600",
+            `Dificuldade Operacional & Verticalização (Score: ${sas.pilar_complexidade}/250)`
+          )}
+
+          {/* 3. Gente */}
+          {renderPilar(
+            "Gente", 
+            sas.pilar_gente, 
+            200, 
+            <Users size={12} />, 
+            "text-pink-600",
+            `Estrutura de RH & Risco Trabalhista (Score: ${sas.pilar_gente}/200)`
+          )}
+
+          {/* 4. Momento */}
+          {renderPilar(
+            "Momento", 
+            sas.pilar_momento, 
+            150, 
+            <Zap size={12} />, 
+            "text-emerald-600",
+            `Maturidade Digital & Governança (Score: ${sas.pilar_momento}/150)`
+          )}
+
         </div>
 
-        {/* PAINEL FINANCEIRO (MÚSCULO) */}
-        <div className="grid grid-cols-2 gap-4 mb-5 p-3 bg-slate-50 rounded-xl border border-slate-100">
-           <div className="flex flex-col justify-center">
-              <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider flex items-center gap-1 mb-0.5">
-                 <TrendingUp size={10} /> Faturamento Est.
-              </span>
-              <span className="text-lg font-black text-emerald-800 tracking-tight">
-                 {formatCurrency(lead.estimatedRevenue)}
-              </span>
-           </div>
-           <div className="flex flex-col justify-center border-l border-slate-200 pl-4">
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
-                 <DollarSign size={10} /> Capital Social
-              </span>
-              <span className="text-sm font-bold text-slate-600">
-                 {formatCurrency(lead.capitalSocial)}
-              </span>
-           </div>
-        </div>
-
-        {/* ACTION BUTTON (BOTTOM ALIGNED) */}
-        <div className="mt-auto">
-           <button 
-             onClick={onAction}
-             className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-widest rounded-lg shadow-sm hover:shadow-emerald-200 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-           >
-             <ScanSearch size={16} /> Mapear Conta & Dossiê
-           </button>
+        {/* FOOTER: Action Button */}
+        <div className="mt-auto pt-2">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onAction(lead); }}
+            className="
+              w-full py-3 px-4 bg-slate-900 hover:bg-indigo-600 text-white 
+              rounded-xl text-xs font-black uppercase tracking-widest 
+              shadow-lg hover:shadow-indigo-200 transition-all duration-300
+              flex items-center justify-center gap-2 group-hover:translate-y-0
+            "
+          >
+            <Network size={16} className="text-white/80" /> 
+            Mapear Conta & Dossiê
+          </button>
         </div>
 
       </div>
-
-      {/* FOOTER: SAS 4.0 BARS */}
-      <div className="grid grid-cols-4 border-t border-slate-100 h-10 divide-x divide-slate-100 bg-slate-50">
-         {/* Músculo */}
-         <div className="flex flex-col items-center justify-center p-1 group/bar" title={`Músculo: ${scoreMusculo}%`}>
-            <div className="flex items-center gap-1 mb-1">
-               <Activity size={10} className="text-emerald-500" />
-               <span className="text-[8px] font-bold text-slate-400 uppercase">Músculo</span>
-            </div>
-            <div className="w-12 h-1 bg-slate-200 rounded-full overflow-hidden">
-               <div style={{width: `${scoreMusculo}%`}} className="h-full bg-emerald-500 rounded-full"></div>
-            </div>
-         </div>
-
-         {/* Complexidade */}
-         <div className="flex flex-col items-center justify-center p-1 group/bar" title={`Complexidade: ${scoreComplex}%`}>
-            <div className="flex items-center gap-1 mb-1">
-               <BrainCircuit size={10} className="text-amber-500" />
-               <span className="text-[8px] font-bold text-slate-400 uppercase">Complex.</span>
-            </div>
-            <div className="w-12 h-1 bg-slate-200 rounded-full overflow-hidden">
-               <div style={{width: `${scoreComplex}%`}} className="h-full bg-amber-500 rounded-full"></div>
-            </div>
-         </div>
-
-         {/* Gente */}
-         <div className="flex flex-col items-center justify-center p-1 group/bar" title={`Gente: ${scoreGente}%`}>
-            <div className="flex items-center gap-1 mb-1">
-               <Users size={10} className="text-blue-500" />
-               <span className="text-[8px] font-bold text-slate-400 uppercase">Gente</span>
-            </div>
-            <div className="w-12 h-1 bg-slate-200 rounded-full overflow-hidden">
-               <div style={{width: `${scoreGente}%`}} className="h-full bg-blue-500 rounded-full"></div>
-            </div>
-         </div>
-
-         {/* Momento */}
-         <div className="flex flex-col items-center justify-center p-1 group/bar" title={`Momento: ${scoreMomento}%`}>
-            <div className="flex items-center gap-1 mb-1">
-               <Target size={10} className="text-purple-500" />
-               <span className="text-[8px] font-bold text-slate-400 uppercase">Momento</span>
-            </div>
-            <div className="w-12 h-1 bg-slate-200 rounded-full overflow-hidden">
-               <div style={{width: `${scoreMomento}%`}} className="h-full bg-purple-500 rounded-full"></div>
-            </div>
-         </div>
-      </div>
-
     </div>
   );
 };

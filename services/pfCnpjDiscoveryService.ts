@@ -12,7 +12,7 @@ export const discoverRelatedCnpjs = async (prospect: PFProspect): Promise<Array<
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: { tools: [{ googleSearch: {} }], responseMimeType: "application/json" }
     });

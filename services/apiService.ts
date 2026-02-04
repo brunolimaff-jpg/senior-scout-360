@@ -65,6 +65,7 @@ export const fetchCnpjData = async (cnpj: string) => {
       email: data.email,
       cnae_fiscal: data.cnae_fiscal,
       cnae_fiscal_descricao: data.cnae_fiscal_descricao,
+      natureza_juridica: data.natureza_juridica,
       cnaes_secundarios: data.cnaes_secundarios || [],
       qsa: data.qsa || []
     };

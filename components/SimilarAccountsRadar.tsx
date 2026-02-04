@@ -40,7 +40,7 @@ export const SimilarAccountsRadar: React.FC<Props> = ({ currentAccount, onSelect
     setLoading(true);
     setLastCost(null);
     try {
-      const { result: radarResult, costInfo } = await findSimilarAccounts(currentAccount, criteria);
+      const { data: radarResult, costInfo } = await findSimilarAccounts(currentAccount, criteria);
       setResult(radarResult);
       setLastCost(costInfo);
     } catch (e) {
