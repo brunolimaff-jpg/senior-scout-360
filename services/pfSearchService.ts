@@ -14,6 +14,24 @@ const SEARCH_PHASES = [
   { id: 9, name: "Consolidação de Provas", prompt: "Verificação de evidências digitais para os nomes encontrados" }
 ];
 
+// Helper for cleaning and parsing JSON from Gemini
+function cleanAndParseJSON(text: string): any {
+  const cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(cleanText);
+  } catch (error) {
+    const match = cleanText.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 export async function runPFSearchPipeline(
   city: string,
   uf: string,
@@ -36,6 +54,10 @@ export async function runPFSearchPipeline(
 
     try {
       const phasePrompt = phase.prompt.replace('{city}', city).replace('{uf}', uf);
+      /**
+       * FIXED: Removed responseMimeType when using googleSearch as per guidelines.
+       * Manual cleanup used instead.
+       */
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: `ATUE COMO: Investigador de Mercado Agro. FASE: ${phase.name}. 
@@ -52,31 +74,33 @@ export async function runPFSearchPipeline(
         NÃO INVENTE CPF. Se encontrar na fonte pública, inclua. Se não, retorne null.
         
         FORMATO JSON: [{ "nome": "string", "cpf": "string|null", "ha": number|null, "evidencia_url": "string", "snippet": "string" }]`,
-        config: { tools: [{ googleSearch: {} }], responseMimeType: "application/json" }
+        config: { tools: [{ googleSearch: {} }] }
       });
 
-      const items = JSON.parse(response.text || '[]');
+      const items = cleanAndParseJSON(response.text || '[]');
       let foundInPhase = 0;
       const phaseUrls: string[] = [];
 
-      items.forEach((item: any) => {
-        if (item.evidencia_url && item.nome) {
-          rawResults.push({
-            id: `pf-${Math.random().toString(36).substr(2, 9)}`,
-            displayName: item.nome,
-            normalizedName: item.nome.toUpperCase().trim(),
-            city,
-            uf,
-            vertical,
-            confidence: 70,
-            isStrongCandidate: !!item.ha,
-            hectares: item.ha,
-            evidences: [{ sourceName: 'Google Search', url: item.evidencia_url, title: item.nome, snippet: item.snippet || '' }]
-          });
-          foundInPhase++;
-          if (!phaseUrls.includes(item.evidencia_url)) phaseUrls.push(item.evidencia_url);
-        }
-      });
+      if (Array.isArray(items)) {
+        items.forEach((item: any) => {
+          if (item.evidencia_url && item.nome) {
+            rawResults.push({
+              id: `pf-${Math.random().toString(36).substr(2, 9)}`,
+              displayName: item.nome,
+              normalizedName: item.nome.toUpperCase().trim(),
+              city,
+              uf,
+              vertical,
+              confidence: 70,
+              isStrongCandidate: !!item.ha,
+              hectares: item.ha,
+              evidences: [{ sourceName: 'Google Search', url: item.evidencia_url, title: item.nome, snippet: item.snippet || '' }]
+            });
+            foundInPhase++;
+            if (!phaseUrls.includes(item.evidencia_url)) phaseUrls.push(item.evidencia_url);
+          }
+        });
+      }
 
       const tel: PhaseTelemetry = {
         phaseId: phase.id,

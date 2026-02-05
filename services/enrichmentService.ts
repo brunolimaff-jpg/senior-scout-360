@@ -1,9 +1,13 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { detectBusinessPersona, BusinessPersona } from "./microservices/2-intelligence/businessPersonaDetector";
 import { enrichMarketContext, MarketContext } from "./microservices/2-intelligence/marketContextEnricher";
-import { generateStrategicNarrative } from "./geminiService";
 import { ProspectLead, Evidence } from "../types"; 
+
+// ==================== CONFIGURAÇÃO ====================
+
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const MODEL_FAST = 'gemini-2.5-flash'; 
+const MODEL_SMART = 'gemini-2.5-pro'; 
 
 // ==================== INTERFACES ====================
 
@@ -16,390 +20,212 @@ export interface NewsItem {
   relevancia: 'ALTA' | 'MEDIA' | 'BAIXA';
 }
 
-export interface FuncionariosValidados {
-  quantidade: number;
-  fonte: 'RAIS' | 'CAGED' | 'NOTICIA' | 'VAGAS' | 'ESTIMATIVA_IA';
-  confiabilidade: 'ALTA' | 'MEDIA' | 'BAIXA';
-  ano_referencia: string;
-  detalhes?: string;
-}
-
 export interface CompanyEnrichment {
   resumo: string;
   noticias: NewsItem[];
-  faturamento_validado: {
-    valor: number;
-    fonte: 'RECEITA_FEDERAL' | 'BALANCO' | 'ESTIMATIVA_IA';
-    confiabilidade: 'ALTA' | 'MEDIA' | 'BAIXA';
-    ultima_atualizacao: string;
-    justificativa?: string;
-  };
-  funcionarios_validados: FuncionariosValidados;
+  faturamento_validado: any;
+  funcionarios_validados: any;
   hectares_corrigidos?: number;
   timestamp: number;
 }
 
-// ==================== CONFIGURAÇÃO ====================
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-// Modelos Válidos (Série 2.5 - Stable 2026)
-const MODEL_FAST = 'gemini-2.5-flash'; 
-
-// Prompt de Bloqueio de Conversa (Injeção de Sistema)
-const SYSTEM_PROMPT_JSON_ONLY = `
-VOCÊ É UMA API STRICT JSON. VOCÊ NÃO FALA. VOCÊ NÃO EXPLICA.
-- Se a informação não for encontrada, retorne null, 0 ou array vazio nos campos.
-- JAMAIS retorne texto plano, markdown fora do JSON ou explicações.
-- Output OBRIGATÓRIO: Apenas o objeto JSON.
-`;
-
 // ==================== HELPER: JSON PARSER ====================
 
 function parseGeminiJsonResponse(text: string): any {
-  let cleaned = text.trim();
-  
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
-  }
-  
+  if (!text) return {};
+  let cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
   try {
     return JSON.parse(cleaned);
-  } catch (error) {
-    console.warn('Gemini Parse Warn: Recuperando JSON parcial...');
-    const match = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+  } catch (e) {
+    const match = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
     if (match) {
-        try { return JSON.parse(match[0]); } catch(e) { return {}; }
+      try { return JSON.parse(match[0]); } catch (e2) {}
     }
-    throw new Error('Resposta da IA não está em formato JSON válido');
+    return {};
   }
 }
 
-// ==================== CACHE MANAGER ====================
-
-function getCachedEnrichment(cnpj: string): CompanyEnrichment | null {
-  const cleanCnpj = cnpj.replace(/\D/g, '');
-  const cacheKey = `enrichment_v15_${cleanCnpj}`; 
-  const cached = localStorage.getItem(cacheKey);
-  
-  if (cached) {
-    try {
-      const data = JSON.parse(cached) as CompanyEnrichment;
-      const ageMinutes = (Date.now() - data.timestamp) / 1000 / 60;
-      if (ageMinutes < 1440) return data;
-    } catch (e) {
-      localStorage.removeItem(cacheKey);
-    }
-  }
-  return null;
-}
-
-function setCachedEnrichment(cnpj: string, data: CompanyEnrichment): void {
-  const cleanCnpj = cnpj.replace(/\D/g, '');
-  const cacheKey = `enrichment_v15_${cleanCnpj}`;
-  localStorage.setItem(cacheKey, JSON.stringify(data));
-}
-
-export function clearEnrichmentCache(cnpj: string): void {
-  const cleanCnpj = cnpj.replace(/\D/g, '');
-  const cacheKey = `enrichment_v15_${cleanCnpj}`;
-  localStorage.removeItem(cacheKey);
-}
-
-// ==================== SEARCH & AI FUNCTIONS ====================
+// ==================== 1. THE HUNTER (BUSCADOR) ====================
 
 async function searchCompanyNews(razaoSocial: string, cnpj: string): Promise<NewsItem[]> {
   const prompt = `
-    ${SYSTEM_PROMPT_JSON_ONLY}
-    ATUE COMO: Analista de Inteligência de Mercado Agro.
-    TAREFA: Buscar notícias RECENTES (últimos 18 meses) sobre a empresa.
-    EMPRESA: "${razaoSocial}" (CNPJ: ${cnpj})
+    ATUE COMO: Investigador de Inteligência Competitiva (Agro).
+    ALVO: "${razaoSocial}" (CNPJ: ${cnpj}).
     
-    FORMATO OBRIGATÓRIO (JSON puro): { "noticias": [{ "titulo": "...", "resumo": "...", "fonte": "...", "data": "...", "url": "...", "relevancia": "ALTA" }] }
+    MISSÃO: Encontrar SINAIS DE CAPITAL e OPERAÇÃO (Últimos 24 meses).
+    O QUE BUSCAR:
+    1. DINHEIRO: "Investimento", "Aporte", "CRA", "Fiagro", "BNDES", "Financiamento".
+    2. ESTRUTURA: "Holding", "Grupo", "Fusão", "Aquisição", "Sócios".
+    3. OPERAÇÃO: "Hectares", "Planta", "Armazém", "Licença Ambiental", "Expansão".
+    
+    OUTPUT: JSON com array "noticias".
+    SCHEMA: { "noticias": [{ "titulo": "...", "resumo": "Cite valores exatos (R$)", "fonte": "...", "data": "...", "relevancia": "ALTA" }] }
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: MODEL_FAST, 
+      model: MODEL_SMART, // PRO: Busca profunda
       contents: prompt,
       config: {
         temperature: 0.1,
-        tools: [{ googleSearch: {} }], // Google Search ativado
-        // responseMimeType REMOVIDO para evitar conflito
-      }
-    });
-
-    const result = parseGeminiJsonResponse(response.text || '{"noticias": []}');
-    return result.noticias || [];
-  } catch (error) {
-    console.error("Erro ao buscar notícias:", error);
-    return [];
-  }
-}
-
-async function validateRevenue(razaoSocial: string, cnpj: string, capitalSocial: number): Promise<CompanyEnrichment['faturamento_validado']> {
-  const prompt = `
-    ${SYSTEM_PROMPT_JSON_ONLY}
-    ATUE COMO: Auditor Financeiro.
-    TAREFA: Estimar o Faturamento Anual Bruto com base em dados financeiros e heurística de mercado.
-    DADOS: Empresa: ${razaoSocial}, CNPJ: ${cnpj}, Capital: R$ ${capitalSocial.toLocaleString('pt-BR')}
-    
-    RETORNE APENAS O JSON: { "valor": number, "fonte": "ESTIMATIVA_IA", "confiabilidade": "MEDIA", "ano_referencia": "2025", "justificativa": "..." }
-  `;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: MODEL_FAST, 
-      contents: prompt,
-      config: {
-        temperature: 0.1,
-        responseMimeType: "application/json" // OK: Sem tools
+        tools: [{ googleSearch: {} }] 
       }
     });
 
     const result = parseGeminiJsonResponse(response.text || '{}');
-    if (!result.valor) {
-        return {
-            valor: capitalSocial * 5.0, 
-            fonte: 'ESTIMATIVA_IA',
-            confiabilidade: 'BAIXA',
-            ultima_atualizacao: new Date().getFullYear().toString(),
-            justificativa: 'Estimativa baseada em multiplicador de Capital Social (Fallback).'
-        };
-    }
-    return {
-      valor: result.valor,
-      fonte: result.fonte || 'ESTIMATIVA_IA',
-      confiabilidade: result.confiabilidade || 'MEDIA',
-      ultima_atualizacao: result.ano_referencia || 'N/D',
-      justificativa: result.justificativa
-    };
+    return result.noticias || [];
   } catch (error) {
-    console.error("Erro ao validar faturamento:", error);
-    return {
-      valor: capitalSocial * 5, 
-      fonte: 'ESTIMATIVA_IA',
-      confiabilidade: 'BAIXA',
-      ultima_atualizacao: 'N/D',
-      justificativa: 'Erro na conexão IA. Estimativa padrão aplicada.'
-    };
+    console.error("Erro no Hunter:", error);
+    return [];
   }
 }
 
-async function validateEmployeeCount(razaoSocial: string, cnpj: string, hectares: number, capitalSocial: number): Promise<FuncionariosValidados> {
+// ==================== VALIDATOR: REVENUE SYNC ====================
+
+function extractMoneyFromNews(noticias: NewsItem[]): number {
+  let maxVal = 0;
+  const regexMoney = /(?:R\$|BRL|R)\s*([\d\.,]+)\s*(milhões|bilhões|bi|mi|milhao|bilhao)/gi;
+  
+  const text = noticias.map(n => n.titulo + ' ' + n.resumo).join(' ');
+  let match;
+  
+  while ((match = regexMoney.exec(text)) !== null) {
+    let valStr = match[1].replace(/\./g, '').replace(',', '.');
+    let val = parseFloat(valStr);
+    const unit = match[2].toLowerCase();
+    const multiplier = (unit.startsWith('bi')) ? 1_000_000_000 : 1_000_000;
+    const total = val * multiplier;
+    if (total > maxVal) maxVal = total;
+  }
+  return maxVal;
+}
+
+async function validateRevenue(razaoSocial: string, cnpj: string, capitalSocial: number, noticias: NewsItem[]): Promise<any> {
+  const newsRevenue = extractMoneyFromNews(noticias);
+  
+  // Regra Evermat/Jequitibá: Notícia > 10M vence Capital Social
+  if (newsRevenue > 10_000_000 && newsRevenue > capitalSocial) {
+     return {
+        valor: newsRevenue,
+        fonte: 'SINAIS_DE_MERCADO',
+        confiabilidade: 'ALTA',
+        ultima_atualizacao: new Date().getFullYear().toString(),
+        justificativa: `Valor ajustado com base em sinais de mercado (Investimentos/Aportes detectados).`
+     };
+  }
+  
+  const baseRevenue = capitalSocial > 0 ? capitalSocial * 1.5 : 1000000; 
+  return {
+      valor: baseRevenue,
+      fonte: 'ESTIMATIVA_CAPITAL',
+      confiabilidade: 'MEDIA',
+      ultima_atualizacao: '2025',
+      justificativa: 'Estimativa baseada no Capital Social (Holding/Asset).'
+  };
+}
+
+async function validateEmployeeCount(razao: string, cnpj: string, ha: number, cap: number) {
+    return { quantidade: ha > 0 ? Math.floor(ha/100) : 10, fonte: 'ESTIMATIVA', confiabilidade: 'MEDIA' };
+}
+
+// ==================== 2. THE JUDGE (CLASSIFICADOR) ====================
+
+async function classifyBusinessArchetype(lead: ProspectLead, evidences: Evidence[]): Promise<string> {
+  const evidenceText = evidences.map(e => `${e.title}: ${e.snippet}`).join('\n');
+  
   const prompt = `
-    ${SYSTEM_PROMPT_JSON_ONLY}
-    TAREFA: Validar número REAL de funcionários de empresa agropecuária.
-    EMPRESA: ${razaoSocial}, CNPJ: ${cnpj}
+    ATUE COMO: Consultor Estratégico.
+    EMPRESA: ${lead.companyName}.
+    EVIDÊNCIAS: ${evidenceText}
     
-    FORMATO OBRIGATÓRIO (JSON puro): { "quantidade_funcionarios": number, "fonte": "...", "confiabilidade": "...", "ano_referencia": "...", "detalhes": "..." }
+    CLASSIFIQUE O ARQUÉTIPO (Escolha UM):
+    1. HOLDING_PATRIMONIAL: Capital >100M, "Participações". (Ex: Natter).
+    2. SA_PRODUTORES: Usina/Indústria com muitos sócios produtores. (Ex: Evermat).
+    3. CORPORATE_INVESTIDOR: Fundos, Fiagros. (Ex: Jequitibá).
+    4. PRODUTOR_RURAL: Foco em plantio direto.
+    
+    Retorne APENAS o nome do arquétipo.
   `;
 
   try {
     const response = await ai.models.generateContent({
       model: MODEL_FAST,
       contents: prompt,
-      config: {
-        temperature: 0.1,
-        tools: [{ googleSearch: {} }], // Google Search ativado
-        // responseMimeType REMOVIDO
-      }
+      config: { temperature: 0.0 }
+    });
+    return response.text?.trim() || 'PRODUTOR_RURAL';
+  } catch (e) { return 'PRODUTOR_RURAL'; }
+}
+
+// ==================== 3. THE WRITER (O CORRETOR DO SURTO) ====================
+
+async function generateExecutiveSummary(
+  lead: ProspectLead,
+  persona: BusinessPersona,
+  marketContext: MarketContext,
+  evidences: Evidence[],
+  archetype: string
+): Promise<string> {
+  
+  // PROTEÇÃO CONTRA ALUCINAÇÃO: Se não houver notícias, usamos CNAE e Capital.
+  let evidenceText = evidences.slice(0, 5).map(e => `- ${e.title}: ${e.snippet}`).join('\n');
+  if (evidenceText.length < 10) {
+      evidenceText = `AVISO: Não foram encontradas notícias recentes. Baseie-se ESTRITAMENTE na atividade econômica: ${lead.cnaes?.[0]?.description} e Capital Social: R$ ${lead.capitalSocial}. NÃO INVENTE DADOS.`;
+  }
+
+  const prompt = `
+    ATUE COMO: Sara, Analista Sênior da Senior Sistemas.
+    PÚBLICO: Vendedor Interno (Briefing Tático).
+    ALVO: ${lead.companyName}.
+    ARQUÉTIPO: ${archetype}.
+    
+    FATOS (A VERDADE):
+    ${evidenceText}
+    
+    REGRAS DE OURO (ANTI-ALUCINAÇÃO):
+    1. ATENHA-SE AOS FATOS: Se não há notícias de "Construção", NÃO fale de Construção. Se é Agro, fale de Agro.
+    2. ZERO SAUDAÇÕES: Comece direto. Sem "Prezados", sem "Olá".
+    3. ZERO VISUAL SUJO: Não repita as instruções do prompt no texto final.
+    
+    ESTRUTURA DE SAÍDA (Use ||| como separador único):
+    [PARAGRAFO 1: PERFIL & REALIDADE FINANCEIRA]
+    |||
+    [PARAGRAFO 2: DORES OPERACIONAIS]
+    |||
+    [PARAGRAFO 3: TESE DE VENDA (SOLUÇÃO SENIOR)]
+    |||
+    [PARAGRAFO 4: GATILHO DE ATAQUE]
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL_FAST,
+      contents: prompt,
+      config: { temperature: 0.1 } // Baixíssima temperatura para evitar invenção
     });
 
-    const data = parseGeminiJsonResponse(response.text || '{}');
-    return {
-      quantidade: data.quantidade_funcionarios || estimateFuncionarios(hectares),
-      fonte: data.fonte || 'ESTIMATIVA_IA',
-      confiabilidade: data.confiabilidade || 'MEDIA',
-      ano_referencia: data.ano_referencia || new Date().getFullYear().toString(),
-      detalhes: data.detalhes || 'Estimativa baseada em porte da operação'
-    };
-  } catch (error) {
-    console.error('Erro validação funcionários:', error);
-    return {
-      quantidade: estimateFuncionarios(hectares),
-      fonte: 'ESTIMATIVA_IA',
-      confiabilidade: 'BAIXA',
-      ano_referencia: new Date().getFullYear().toString(),
-      detalhes: 'Estimativa baseada em média setor (Fallback)'
-    };
-  }
+    let text = response.text || '';
+    if (!text.includes('|||')) text = text.replace(/\n\n/g, '|||');
+    
+    // VASSOURA UNIVERSAL (Limpa qualquer coisa entre colchetes ou que pareça cabeçalho)
+    text = text
+        .replace(/\[.*?\]/g, '') // Remove [Qualquer Coisa]
+        .replace(/\(.*?\):/g, '') // Remove (Instruções):
+        .replace(/#\s*Seção\s*\d+/gi, '')
+        .replace(/^(Prezados|Olá|Caros|Estimados).*?(\n|$)/gim, '')
+        .replace(/^(Nesta análise|A seguir).*?(\n|$)/gim, '')
+        .replace(/```/g, '')
+        .trim();
+
+    // Limpeza extra de linhas vazias que sobram após remover tags
+    text = text.split('|||').map(p => p.trim()).join('|||');
+
+    return text;
+
+  } catch (error) { return "Erro na geração."; }
 }
 
-function estimateFuncionarios(hectares: number): number {
-  if (hectares === 0) return 10;
-  const estimate = Math.floor(hectares / 70);
-  return Math.max(5, Math.min(estimate, 800));
-}
-
-function extrairHectaresDasNoticias(noticias: NewsItem[]): number {
-  for (const noticia of noticias) {
-    const texto = `${noticia.titulo} ${noticia.resumo}`.toLowerCase();
-    const patterns = [
-      /(\d{1,3}(?:[.,]\d{3})*)\s*(?:mil|thousand)?\s*(?:hectares|ha)/gi,
-      /(\d{1,3})\.(\d{3})\s*(?:hectares|ha)/gi,
-      /(\d{1,3})k\s*(?:hectares|ha)/gi
-    ];
-    for (const pattern of patterns) {
-      const match = texto.match(pattern);
-      if (match) {
-        let numero = match[0].replace(/[^\d.,k]/gi, '');
-        if (numero.includes('k')) { return parseFloat(numero.replace('k', '')) * 1000; }
-        numero = numero.replace(/\./g, '').replace(',', '.');
-        const hectares = parseFloat(numero);
-        if (hectares >= 1000) { return Math.round(hectares); }
-      }
-    }
-  }
-  return 0;
-}
-
-// ==================== ENGINE DE FATOS ====================
-
-interface ExtractedFacts {
-  origin: {
-    story: string | null;
-    isCooperativeBased: boolean;
-    cooperativeDetails: string | null;
-  };
-  products: {
-    rawMaterials: string[];
-    mainProducts: string[];
-    byProducts: string[];
-  };
-  location: {
-    isStrategic: boolean;
-    relevance: string | null;
-  };
-  triggers: {
-    recent: Array<{ category: string; title: string; date: string | null }>;
-  };
-}
-
-function extractKeyFacts(lead: ProspectLead, evidences: Evidence[]): ExtractedFacts {
-  const allText = evidences.map(e => (e.text || '') + ' ' + (e.snippet || '')).join(' ').toLowerCase();
-  
-  const mainProducts: string[] = [];
-  const byProducts: string[] = [];
-  const rawMaterials: string[] = [];
-  
-  if (allText.includes('milho')) rawMaterials.push('milho');
-  if (allText.includes('cana')) rawMaterials.push('cana-de-açúcar');
-  if (allText.includes('soja')) rawMaterials.push('soja');
-  if (allText.includes('algodão') || allText.includes('pluma')) rawMaterials.push('algodão');
-  
-  const cnae = lead.cnaes?.[0]?.description?.toLowerCase() || '';
-  if (cnae.includes('etanol') || cnae.includes('álcool') || allText.includes('etanol')) mainProducts.push('etanol');
-  if (cnae.includes('açúcar') || allText.includes('açúcar')) mainProducts.push('açúcar');
-  if (cnae.includes('biodiesel') || allText.includes('biodiesel')) mainProducts.push('biodiesel');
-  if (cnae.includes('semente') || allText.includes('semente')) mainProducts.push('sementes certificadas');
-  
-  if (allText.includes('ddgs') || allText.includes('ddg')) byProducts.push('DDGS (nutrição animal)');
-  if (allText.includes('energia elétrica') || allText.includes('cogeração') || allText.includes('bioeletricidade')) byProducts.push('bioenergia');
-  
-  let originStory = null;
-  const cooperativeMatch = allText.match(/(\d+)\s*famílias|união de.*produtores|cooperados.*fundaram|nasceu.*cooperativa|grupo.*familiar/i);
-  
-  let isStrategic = false;
-  let locationRelevance = null;
-  const uf = lead.uf?.toUpperCase() || '';
-  
-  if (uf === 'MT' && (rawMaterials.includes('milho') || mainProducts.includes('etanol'))) {
-    isStrategic = true;
-    locationRelevance = 'no coração da produção de milho de segunda safra (safrinha)';
-  } else if (uf === 'MS') {
-    isStrategic = true;
-    locationRelevance = 'em hub logístico estratégico';
-  } else if (uf === 'BA') {
-    isStrategic = true;
-    locationRelevance = 'na região do Matopiba (fronteira agrícola)';
-  }
-  
-  const recentTriggers = (lead.tacticalAnalysis?.temporalTrace || [])
-    .filter(t => {
-      const dateMs = new Date(t.date).getTime();
-      const sixMonthsAgo = Date.now() - (180 * 24 * 60 * 60 * 1000); 
-      return !isNaN(dateMs) && dateMs > sixMonthsAgo;
-    })
-    .slice(0, 3)
-    .map(t => ({ category: t.category, title: t.title, date: t.date }));
-  
-  return {
-    origin: {
-      story: originStory,
-      isCooperativeBased: lead.companyName.toUpperCase().includes('COOP') || cooperativeMatch !== null,
-      cooperativeDetails: originStory
-    },
-    products: {
-      rawMaterials: [...new Set(rawMaterials)], 
-      mainProducts: [...new Set(mainProducts)],
-      byProducts: [...new Set(byProducts)]
-    },
-    location: {
-      isStrategic,
-      relevance: locationRelevance
-    },
-    triggers: {
-      recent: recentTriggers
-    }
-  };
-}
-
-async function generateExecutiveSummary(lead: ProspectLead, persona: BusinessPersona, marketContext: MarketContext, evidences: Evidence[]): Promise<string> {
-  const facts = extractKeyFacts(lead, evidences);
-  let solucaoAgro = "GAtec (Gestão Agrícola)";
-  let solucaoBackoffice = "Senior ERP (Backoffice e Fiscal)";
-  let solucaoPessoas = "HCM (Gestão de Pessoas)";
-  let contextoFit = "";
-
-  if (persona.primaryRole === 'INDUSTRIA_PROCESSADORA' || persona.primaryRole === 'VERTICALIZADA' || persona.primaryRole === 'COOPERATIVA') {
-      solucaoAgro = "GAtec (MANDATÓRIO: Originação, Pesagem, Laboratório, Custos Industriais)";
-      contextoFit = "Integração Campo-Indústria (Rastreabilidade Total)";
-  } else if (persona.primaryRole === 'PRODUTOR') {
-      solucaoAgro = "GAtec (Safra, Frota, Custo por Talhão)";
-      contextoFit = "Profissionalização da Gestão (Porteira para Dentro)";
-  }
-
-  const contextPayload = {
-    empresa: {
-      nome: lead.companyName,
-      cidade: lead.city,
-      estado: lead.uf,
-      capital_social: lead.capitalSocial,
-      funcionarios: lead.numFuncionarios || 0,
-      origem_cooperativa: facts.origin.isCooperativeBased
-    },
-    persona: {
-      tipo: persona.primaryRole,
-      hectares_reais: persona.realHectares || 0,
-      propriedade: persona.ownership
-    },
-    operacao: {
-      entradas: facts.products.rawMaterials,
-      saidas: facts.products.mainProducts,
-      coprodutos: facts.products.byProducts,
-      contexto_local: facts.location.relevance
-    },
-    inteligencia_mercado: {
-      vertical: marketContext.vertical,
-      dores_tipicas: marketContext.typicalPainPoints,
-      estrutura_decisao: marketContext.decisionStructure.type,
-      gatilho_compra: marketContext.decisionStructure.buyingTrigger
-    },
-    sinais_recentes: facts.triggers.recent.map(t => t.title),
-    solucoes_senior_recomendadas: {
-      gestao_agroindustrial: solucaoAgro,
-      backoffice: solucaoBackoffice,
-      rh: solucaoPessoas,
-      tese_venda: contextoFit
-    }
-  };
-
-  const narrative = await generateStrategicNarrative(contextPayload);
-  return narrative;
-}
+// ==================== ORCHESTRATOR ====================
 
 export async function enrichCompanyData(
   razaoSocial: string,
@@ -408,125 +234,80 @@ export async function enrichCompanyData(
   hectares: number,
   natureza: string,
   cultura: string,
-  qsa: Array<{ nome: string; qualificacao: string }>,
-  location: { state: string; city: string },
+  qsa: any[],
+  location: any,
   onProgress?: (msg: string) => void
 ): Promise<CompanyEnrichment> {
-  const cached = getCachedEnrichment(cnpj);
-  if (cached) {
-    onProgress?.('Dados recuperados do cache.');
-    return cached;
-  }
+  
+  const safeRazao = razaoSocial || 'Empresa Agrícola';
+  const safeCnpj = cnpj || '';
+  const safeCapital = Number(capitalSocial) || 0;
+  const safeCultura = (cultura && cultura.length > 2) ? cultura : 'AGRONEGOCIO_GERAL';
+  
+  const cached = localStorage.getItem(`enrichment_v16_${safeCnpj.replace(/\D/g, '')}`);
+  if (cached) return JSON.parse(cached);
 
-  onProgress?.('Consultando fontes oficiais, notícias e balanços...');
-  try {
-    const [noticias, faturamento, funcionarios] = await Promise.all([
-      searchCompanyNews(razaoSocial, cnpj),
-      validateRevenue(razaoSocial, cnpj, capitalSocial),
-      validateEmployeeCount(razaoSocial, cnpj, hectares, capitalSocial)
-    ]);
+  onProgress?.('Caçando sinais de mercado...');
+  
+  const noticias = await searchCompanyNews(safeRazao, safeCnpj);
+  const faturamento = await validateRevenue(safeRazao, safeCnpj, safeCapital, noticias);
+  const funcionarios = await validateEmployeeCount(safeRazao, safeCnpj, hectares || 0, safeCapital);
 
-    let hectaresCorrigidos = hectares;
-    if (funcionarios.quantidade >= 50 && hectares < 500) {
-        const hectaresEstimados = funcionarios.quantidade * 70;
-        hectaresCorrigidos = Math.max(hectaresCorrigidos, hectaresEstimados);
-    }
-    const hectaresNoticia = extrairHectaresDasNoticias(noticias);
-    if (hectaresNoticia > hectaresCorrigidos) {
-        hectaresCorrigidos = hectaresNoticia;
-    }
+  const tempLead = {
+    id: 'temp',
+    companyName: safeRazao, 
+    cnpj: safeCnpj, 
+    capitalSocial: safeCapital,
+    city: location?.city || '',
+    uf: location?.state || '',
+    cnaes: [{ description: safeCultura }],
+    numFuncionarios: funcionarios.quantidade,
+    isValidated: true,
+    isSA: safeRazao.toUpperCase().includes('S.A') || safeRazao.toUpperCase().includes('S/A'),
+    isMatriz: true,
+    contactType: 'Direto',
+    activityCount: 1,
+    priority: 50,
+    confidence: 90
+  } as ProspectLead;
 
-    const personaInput = {
-      cnpj,
-      razaoSocial,
-      cnaePrincipal: cultura,
+  onProgress?.('Classificando Arquétipo...');
+  const evidenceList = noticias.map(n => ({ title: n.titulo, snippet: n.resumo, source: n.fonte, type: 'web' } as Evidence));
+  const archetype = await classifyBusinessArchetype(tempLead, evidenceList);
+  
+  const persona = await detectBusinessPersona({ 
+      cnpj: safeCnpj,
+      razaoSocial: safeRazao,
+      cnaePrincipal: safeCultura,
       cnaesSecundarios: [],
       qsa: qsa || [],
-      hectaresCadastrais: hectaresCorrigidos,
-      capitalSocial: capitalSocial,
-      uf: location.state
-    };
-    
-    const persona = await detectBusinessPersona(personaInput);
-    const enrichmentInput = {
-      persona,
-      capitalSocial,
-      cnaePrincipal: cultura,
-      location: location,
-      faturamentoEstimado: faturamento.valor
-    };
-    
-    const marketContext = enrichMarketContext(enrichmentInput);
+      hectaresCadastrais: hectares || 0,
+      capitalSocial: safeCapital,
+      uf: location?.state || 'MT'
+  });
 
-    onProgress?.('Gerando análise estratégica Sara AI...');
-    const tempLead: ProspectLead = {
-        id: 'temp_enrich',
-        companyName: razaoSocial,
-        cnpj: cnpj,
-        capitalSocial: capitalSocial,
-        city: location.city,
-        uf: location.state,
-        cnaes: [{ code: '', description: cultura, persona: 'PRODUTOR' }],
-        numFuncionarios: funcionarios.quantidade,
-        isValidated: true,
-        isSA: natureza.toUpperCase().includes('S.A'),
-        isMatriz: true,
-        contactType: 'Direto',
-        activityCount: 1,
-        priority: 50,
-        businessType: persona.primaryRole,
-        confidence: persona.confidence * 100,
-        tacticalAnalysis: {
-            verticalizationScore: 50,
-            badges: [],
-            salesComplexity: 'CONSULTIVA/SUCESSAO',
-            goldenHook: '',
-            temporalTrace: noticias.map((n, i) => ({
-                id: String(i),
-                title: n.titulo,
-                date: n.data,
-                category: 'GERAL',
-                url: n.url || '',
-                source: n.fonte
-            })),
-            rawEvidences: noticias.map(n => ({
-                sourceName: n.fonte,
-                url: n.url || '',
-                title: n.titulo,
-                snippet: n.resumo
-            }))
-        }
-    };
+  const marketContext = enrichMarketContext({ 
+      persona, 
+      capitalSocial: safeCapital, 
+      cnaePrincipal: safeCultura, 
+      location: location || { state: 'MT', city: 'Sinop' }, 
+      faturamentoEstimado: faturamento.valor 
+  });
 
-    const evidenceList: Evidence[] = noticias.map((n, i) => ({
-        id: `news-${i}`,
-        title: n.titulo,
-        text: n.resumo,
-        snippet: n.resumo,
-        url: n.url || '',
-        category: 'Notícia',
-        selected: true,
-        recommendation: 'MANTER',
-        source: n.fonte,
-        type: 'web'
-    }));
+  onProgress?.(`Gerando estratégia para ${archetype}...`);
+  const resumo = await generateExecutiveSummary(tempLead, persona, marketContext, evidenceList, archetype);
 
-    const resumo = await generateExecutiveSummary(tempLead, persona, marketContext, evidenceList);
+  const enrichment = {
+    resumo, noticias, faturamento_validado: faturamento,
+    funcionarios_validados: funcionarios, hectares_corrigidos: hectares || 0,
+    timestamp: Date.now()
+  };
 
-    const enrichment: CompanyEnrichment = {
-      resumo,
-      noticias,
-      faturamento_validado: faturamento,
-      funcionarios_validados: funcionarios,
-      hectares_corrigidos: hectaresCorrigidos,
-      timestamp: Date.now()
-    };
+  localStorage.setItem(`enrichment_v16_${safeCnpj.replace(/\D/g, '')}`, JSON.stringify(enrichment));
+  return enrichment;
+}
 
-    setCachedEnrichment(cnpj, enrichment);
-    return enrichment;
-
-  } catch (error) {
-    console.error("Erro fatal no enriquecimento:", error);
-    throw error;
-  }
+export function clearEnrichmentCache(cnpj: string): void {
+  const cleanCnpj = cnpj.replace(/\D/g, '');
+  localStorage.removeItem(`enrichment_v16_${cleanCnpj}`);
 }

@@ -7,9 +7,10 @@ import { enrichCompanyData, CompanyEnrichment, clearEnrichmentCache } from '../.
 import { 
   X, Building2, MapPin, Activity, Users, Sparkles, 
   AlertTriangle, ShieldCheck, DollarSign, BrainCircuit, Target, TrendingUp,
-  Newspaper, RefreshCw, ExternalLink, Clipboard, Copy
+  Newspaper, RefreshCw, ExternalLink, Clipboard, Copy, FileDown, Loader2
 } from 'lucide-react';
-import { AccordionSocios } from '../AccordionSocios'; // Importando o novo componente
+import { AccordionSocios } from '../AccordionSocios';
+import { jsPDF } from 'jspdf';
 
 interface Props {
   lead: ProspectLead;
@@ -26,6 +27,7 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
   const [erro, setErro] = useState<string | null>(null);
   const [statusStep, setStatusStep] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -121,7 +123,139 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
     }
   };
 
-  if (!isOpen) return null;
+  const handleExportPdf = async () => {
+    if (!enrichment || !dadosCadastrais) return;
+    setIsPdfGenerating(true);
+    
+    // Pequeno delay para a UI atualizar o estado do botão
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    try {
+      const doc = new jsPDF();
+      const margin = 20;
+      let cursorY = 20;
+      const pageWidth = doc.internal.pageSize.width;
+      const contentWidth = pageWidth - (margin * 2);
+
+      // Helper para limpar texto (remove emojis que quebram o jsPDF padrão)
+      const cleanText = (text: string) => {
+        return text.replace(/[^\x20-\x7E\xC0-\xFF\n\r\t\u2013\u2014]/g, '').trim();
+      };
+
+      // --- HEADER ---
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(13, 148, 136); // Teal 600
+      doc.text("SENIOR SCOUT 360", margin, cursorY);
+      
+      cursorY += 8;
+      doc.setFontSize(12);
+      doc.setTextColor(60, 60, 60);
+      doc.text(`Dossiê de Inteligência: ${cleanText(dadosCadastrais.razao_social)}`, margin, cursorY);
+      
+      cursorY += 6;
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`CNPJ: ${lead.cnpj} | Local: ${dadosCadastrais.municipio}/${dadosCadastrais.uf}`, margin, cursorY);
+      doc.text(`Data: ${new Date().toLocaleDateString('pt-BR')}`, pageWidth - margin - 30, cursorY);
+
+      cursorY += 8;
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, cursorY, pageWidth - margin, cursorY);
+      cursorY += 12;
+
+      // --- SCORE E DADOS FINANCEIROS ---
+      if (inteligencia) {
+        doc.setFillColor(240, 253, 250); // Teal 50
+        doc.rect(margin, cursorY, contentWidth, 35, 'F');
+        
+        let boxY = cursorY + 8;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(0, 0, 0);
+        doc.text(`SCORE SAS: ${inteligencia.score}/1000`, margin + 5, boxY);
+        doc.text(`TIER: ${inteligencia.tier}`, pageWidth - margin - 40, boxY);
+        
+        boxY += 8;
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        const pillars = `Musculo: ${inteligencia.analise.musculo.score} | Complexidade: ${inteligencia.analise.complexidade.score} | Gente: ${inteligencia.analise.gente.score} | Momento: ${inteligencia.analise.momento.score}`;
+        doc.text(pillars, margin + 5, boxY);
+
+        boxY += 10;
+        doc.text(`Faturamento Est.: ${formatMoney(enrichment.faturamento_validado.valor)} (${enrichment.faturamento_validado.fonte})`, margin + 5, boxY);
+        cursorY += 45;
+      }
+
+      // --- NARRATIVA ESTRATÉGICA ---
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.text("ANÁLISE ESTRATÉGICA (SARA AI)", margin, cursorY);
+      cursorY += 8;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(51, 65, 85); // Slate 700
+
+      const blocks = enrichment.resumo.split('|||');
+      const titles = ["Perfil & Mercado", "Complexidade Operacional", "Oportunidades Senior", "Abordagem Comercial"];
+
+      blocks.forEach((block, idx) => {
+        // Verifica quebra de página
+        if (cursorY > 260) { doc.addPage(); cursorY = 20; }
+        
+        // Título da Seção
+        doc.setFont("helvetica", "bold");
+        doc.text(titles[idx] || "Análise Adicional", margin, cursorY);
+        cursorY += 5;
+
+        // Texto
+        doc.setFont("helvetica", "normal");
+        const cleanBlock = cleanText(block);
+        const lines = doc.splitTextToSize(cleanBlock, contentWidth);
+        doc.text(lines, margin, cursorY);
+        cursorY += (lines.length * 5) + 8;
+      });
+
+      // --- EVIDÊNCIAS DE MERCADO ---
+      if (cursorY > 240) { doc.addPage(); cursorY = 20; }
+      cursorY += 5;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text("NOTÍCIAS & SINAIS DE MERCADO", margin, cursorY);
+      cursorY += 8;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      
+      enrichment.noticias.slice(0, 5).forEach(news => {
+         if (cursorY > 270) { doc.addPage(); cursorY = 20; }
+         const newsTitle = cleanText(`- [${news.fonte}] ${news.titulo} (${news.data})`);
+         const lines = doc.splitTextToSize(newsTitle, contentWidth);
+         doc.text(lines, margin, cursorY);
+         cursorY += (lines.length * 4) + 3;
+      });
+
+      // Rodapé
+      const pageCount = doc.getNumberOfPages();
+      for(let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text(`Gerado por Senior Scout 360 - Confidencial | Pág ${i}/${pageCount}`, margin, 290);
+      }
+
+      doc.save(`Dossie_${lead.companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao gerar PDF. Verifique se o navegador bloqueou o download.");
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  };
 
   const formatMoney = (val?: number) => 
     val ? val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
@@ -130,15 +264,12 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
   const renderResumoExecutivo = () => {
     if (!enrichment?.resumo) return null;
 
-    // Divide pelo separador estrito
     let blocks = enrichment.resumo.split('|||').map(b => b.trim()).filter(b => b.length > 0);
     
-    // Fallback: Se não houver separador, tenta dividir por duplo parágrafo (legado/erro da IA)
     if (blocks.length <= 1 && enrichment.resumo.includes('\n\n')) {
         blocks = enrichment.resumo.split('\n\n').map(b => b.trim()).filter(b => b.length > 0);
     }
 
-    // Configuração dos 4 blocos fixos
     const sectionConfigs = [
         { icon: '🏢', title: 'Perfil & Mercado', color: 'text-teal-800', border: 'border-teal-200' },
         { icon: '⚙️', title: 'Complexidade Operacional', color: 'text-purple-800', border: 'border-purple-200' },
@@ -149,7 +280,6 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
     return (
         <div className="space-y-6">
             {blocks.map((block, idx) => {
-                // Se houver mais blocos que config, usa um genérico
                 const config = sectionConfigs[idx] || { icon: '📝', title: 'Análise Adicional', color: 'text-gray-800', border: 'border-gray-200' };
                 
                 return (
@@ -172,6 +302,8 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
         </div>
     );
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
@@ -517,8 +649,13 @@ export const CompanyDetailsModal: React.FC<Props> = ({ lead, isOpen, onClose, on
         {/* FOOTER */}
         <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-3">
            <button onClick={onClose} className="px-6 py-2 bg-white border border-slate-300 text-slate-600 rounded-lg font-bold text-sm hover:bg-slate-50 transition">Fechar</button>
-           <button className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition flex items-center gap-2">
-              <TrendingUp size={16} /> Ver Oportunidades no CRM
+           <button 
+             onClick={handleExportPdf}
+             disabled={loading || isPdfGenerating || !enrichment}
+             className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+           >
+              {isPdfGenerating ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+              {isPdfGenerating ? 'Gerando PDF...' : 'Exportar Dossiê (PDF)'}
            </button>
         </div>
 

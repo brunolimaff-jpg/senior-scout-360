@@ -236,12 +236,15 @@ async function queryGeminiForVerticalization(lead: ProspectLead): Promise<{ isVe
   `;
 
   return queuedGeminiCall(async () => {
+    /**
+     * FIXED: Use gemini-3-flash-preview for complex reasoning task as per guidelines.
+     * Removed responseMimeType when using googleSearch tool.
+     */
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // Modelo mais inteligente para essa dedução
+      model: 'gemini-3-flash-preview', 
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
         temperature: 0.1
       }
     });

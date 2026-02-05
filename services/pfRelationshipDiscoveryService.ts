@@ -2,6 +2,24 @@
 import { GoogleGenAI } from "@google/genai";
 import { PFProspect, CompanyCandidate, PhaseTelemetry } from "../types";
 
+// Helper for cleaning and parsing JSON from Gemini
+function cleanAndParseJSON(text: string): any {
+  const cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(cleanText);
+  } catch (error) {
+    const match = cleanText.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 export async function discoverPFRelationships(
   pf: PFProspect,
   onPhaseUpdate: (tel: PhaseTelemetry) => void,
@@ -24,42 +42,48 @@ export async function discoverPFRelationships(
     onPhaseUpdate({ phaseId: strat.id, name: strat.name, status: 'RUNNING', durationMs: 0, counts: {}, topUrls: [] });
 
     try {
+      /**
+       * FIXED: Removed responseMimeType when using googleSearch as per guidelines.
+       * Manual cleanup used instead.
+       */
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: `${strat.prompt} 
         RETORNE JSON: [{ "cnpj": "apenas numeros", "razao": "string", "uf": "string", "cidade": "string", "url": "string", "snippet": "string", "motivo": "string" }]
         REGRAS: 1. Zero Ficção. 2. Apenas se achar URL real.`,
-        config: { tools: [{ googleSearch: {} }], responseMimeType: "application/json" }
+        config: { tools: [{ googleSearch: {} }] }
       });
 
-      const items = JSON.parse(response.text || '[]');
-      items.forEach((item: any) => {
-        const cnpjClean = item.cnpj?.replace(/\D/g, '');
-        if (cnpjClean && cnpjClean.length === 14) {
-          candidates.push({
-            cnpj: cnpjClean,
-            legalName: item.razao,
-            uf: item.uf,
-            city: item.cidade,
-            evidenceUrls: [item.url],
-            snippets: [item.snippet],
-            confidence: 85,
-            linkReasons: [item.motivo],
-            // Estados Iniciais
-            validationStatus: 'pending',
-            attemptCount: 0,
-            capitalSocial: 0
-          });
-        }
-      });
+      const items = cleanAndParseJSON(response.text || '[]');
+      if (Array.isArray(items)) {
+        items.forEach((item: any) => {
+          const cnpjClean = item.cnpj?.replace(/\D/g, '');
+          if (cnpjClean && cnpjClean.length === 14) {
+            candidates.push({
+              cnpj: cnpjClean,
+              legalName: item.razao,
+              uf: item.uf,
+              city: item.cidade,
+              evidenceUrls: [item.url],
+              snippets: [item.snippet],
+              confidence: 85,
+              linkReasons: [item.motivo],
+              // Estados Iniciais
+              validationStatus: 'pending',
+              attemptCount: 0,
+              capitalSocial: 0
+            });
+          }
+        });
+      }
 
       const tel: PhaseTelemetry = {
         phaseId: strat.id,
         name: strat.name,
         status: 'COMPLETED',
         durationMs: Date.now() - start,
-        counts: { cnpjFound: items.length },
-        topUrls: items.map((i: any) => i.url).slice(0, 2)
+        counts: { cnpjFound: Array.isArray(items) ? items.length : 0 },
+        topUrls: Array.isArray(items) ? items.map((i: any) => i.url).slice(0, 2) : []
       };
       telemetry.push(tel);
       onPhaseUpdate(tel);
